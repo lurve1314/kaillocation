@@ -49,7 +49,18 @@ abstract class BaseLocationHook: BaseDivineService() {
             originLocation.provider = LocationManager.GPS_PROVIDER
         }
 
-        val location = Location(originLocation.provider ?: LocationManager.GPS_PROVIDER)
+        val provider = (originLocation.provider ?: LocationManager.GPS_PROVIDER).let {
+            if (it.contains("mock", ignoreCase = true) ||
+                it.contains("test", ignoreCase = true) ||
+                it.contains("fake", ignoreCase = true)
+            ) {
+                LocationManager.GPS_PROVIDER
+            } else {
+                it
+            }
+        }
+
+        val location = Location(provider)
         location.accuracy = if (FakeLoc.accuracy != 0.0f) FakeLoc.accuracy else originLocation.accuracy
         val jitterLat = FakeLoc.jitterLocation()
         location.latitude = jitterLat.first
@@ -100,6 +111,7 @@ abstract class BaseLocationHook: BaseDivineService() {
         if (location.extras == null) {
             location.extras = Bundle()
         }
+        cleanMockExtras(location.extras)
         location.extras?.putDouble("latlon", location.latitude + location.longitude)
         location.extras?.putBoolean("kail_faked", true)
         location.extras?.putInt("satellites", Random.nextInt(8, 45))
@@ -118,6 +130,7 @@ abstract class BaseLocationHook: BaseDivineService() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 location.isMock = false
             }
+            cleanMockFields(location)
         } else {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 location.isMock = true
@@ -139,6 +152,23 @@ abstract class BaseLocationHook: BaseDivineService() {
         return location
         } finally {
             injecting.set(false)
+        }
+    }
+
+    private fun cleanMockExtras(extras: Bundle?) {
+        extras ?: return
+        extras.remove("mockLocation")
+        extras.remove("isMock")
+        extras.remove("is_mock")
+        extras.remove("mock")
+    }
+
+    private fun cleanMockFields(location: Location) {
+        kotlin.runCatching {
+            XposedHelpers.setBooleanField(location, "mMock", false)
+        }
+        kotlin.runCatching {
+            XposedHelpers.setBooleanField(location, "mIsFromMockProvider", false)
         }
     }
 
