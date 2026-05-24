@@ -21,6 +21,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.widget.Toast
 import com.baidu.mapapi.model.LatLng
+import com.kail.location.auth.UsageManager
 import org.json.JSONObject
 import com.baidu.mapapi.search.core.SearchResult
 import com.baidu.mapapi.search.geocode.GeoCoder
@@ -268,57 +269,65 @@ class RouteSimulationViewModel(application: Application) : AndroidViewModel(appl
         _isSimulating.value = value
     }
 
-    fun startSimulation(): Boolean {
-        val app = getApplication<Application>()
-        val points = getSelectedRoutePoints() ?: return false
-        if (points.size < 4) return false
-
-        // 关键修复：启动前强制同步一次最新的运行模式
-        val currentRunMode = sharedPreferences.getString("setting_run_mode", "root") ?: "root"
-        _runMode.value = currentRunMode
-
-        // 检查步频模拟权限
-        if (settings.value.stepFreqSimulation) {
-            if (currentRunMode != "root" && currentRunMode != "xposed") {
-                _toastMessage.value = getApplication<Application>().getString(R.string.vm_step_root_required)
-                return false
+    fun startSimulation() {
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            if (!UsageManager.canStartSimulation(app)) {
+                return@launch
             }
-        }
+            if (!UsageManager.consumeSimulation(app)) {
+                return@launch
+            }
+            val points = getSelectedRoutePoints()
+            if (points == null || points.size < 4) {
+                _toastMessage.value = app.getString(R.string.route_sim_need_route)
+                return@launch
+            }
 
-        val serviceClass = getServiceClass(currentRunMode)
-        val intent = Intent(app, serviceClass)
-        val extraRoutePoints = getExtraName(currentRunMode, ServiceGoRoot.EXTRA_ROUTE_POINTS, ServiceGoDeveloper.EXTRA_ROUTE_POINTS)
-        val extraRouteLoop = getExtraName(currentRunMode, ServiceGoRoot.EXTRA_ROUTE_LOOP, ServiceGoDeveloper.EXTRA_ROUTE_LOOP)
-        val extraJoystickEnabled = getExtraName(currentRunMode, ServiceGoRoot.EXTRA_JOYSTICK_ENABLED, ServiceGoDeveloper.EXTRA_JOYSTICK_ENABLED)
-        val extraRouteSpeed = getExtraName(currentRunMode, ServiceGoRoot.EXTRA_ROUTE_SPEED, ServiceGoDeveloper.EXTRA_ROUTE_SPEED)
-        val extraCoordType = getExtraName(currentRunMode, ServiceGoRoot.EXTRA_COORD_TYPE, ServiceGoDeveloper.EXTRA_COORD_TYPE)
-        val extraSpeedFluctuation = getExtraName(currentRunMode, ServiceGoRoot.EXTRA_SPEED_FLUCTUATION, ServiceGoDeveloper.EXTRA_SPEED_FLUCTUATION)
-        intent.putExtra(extraRoutePoints, points)
-        intent.putExtra(extraRouteLoop, settings.value.isLoop)
-        intent.putExtra(extraJoystickEnabled, false)
-        intent.putExtra(extraRouteSpeed, settings.value.speed)
-        intent.putExtra(extraCoordType, "BD09")
-        intent.putExtra(extraSpeedFluctuation, settings.value.speedFluctuation)
-        if (currentRunMode == "root" || currentRunMode == "xposed") {
-            intent.putExtra(ServiceGoRoot.EXTRA_STEP_ENABLED, settings.value.stepFreqSimulation)
-            intent.putExtra(ServiceGoRoot.EXTRA_STEP_FREQ, settings.value.stepCadenceSpm)
-            intent.putExtra("EXTRA_STEP_SCHEME", sharedPreferences.getString("setting_sim_scheme", "0")?.toIntOrNull() ?: 0)
-            intent.putExtra("EXTRA_STEP_MODE", sharedPreferences.getInt("setting_step_mode", 0))
-            intent.putExtra("EXTRA_IS_ROUTE_SIMULATION", true)
+            val currentRunMode = sharedPreferences.getString("setting_run_mode", "root") ?: "root"
+            _runMode.value = currentRunMode
+
+            if (settings.value.stepFreqSimulation) {
+                if (currentRunMode != "root" && currentRunMode != "xposed") {
+                    _toastMessage.value = app.getString(R.string.vm_step_root_required)
+                    return@launch
+                }
+            }
+
+            val serviceClass = getServiceClass(currentRunMode)
+            val intent = Intent(app, serviceClass)
+            val extraRoutePoints = getExtraName(currentRunMode, ServiceGoRoot.EXTRA_ROUTE_POINTS, ServiceGoDeveloper.EXTRA_ROUTE_POINTS)
+            val extraRouteLoop = getExtraName(currentRunMode, ServiceGoRoot.EXTRA_ROUTE_LOOP, ServiceGoDeveloper.EXTRA_ROUTE_LOOP)
+            val extraJoystickEnabled = getExtraName(currentRunMode, ServiceGoRoot.EXTRA_JOYSTICK_ENABLED, ServiceGoDeveloper.EXTRA_JOYSTICK_ENABLED)
+            val extraRouteSpeed = getExtraName(currentRunMode, ServiceGoRoot.EXTRA_ROUTE_SPEED, ServiceGoDeveloper.EXTRA_ROUTE_SPEED)
+            val extraCoordType = getExtraName(currentRunMode, ServiceGoRoot.EXTRA_COORD_TYPE, ServiceGoDeveloper.EXTRA_COORD_TYPE)
+            val extraSpeedFluctuation = getExtraName(currentRunMode, ServiceGoRoot.EXTRA_SPEED_FLUCTUATION, ServiceGoDeveloper.EXTRA_SPEED_FLUCTUATION)
+            intent.putExtra(extraRoutePoints, points)
+            intent.putExtra(extraRouteLoop, settings.value.isLoop)
+            intent.putExtra(extraJoystickEnabled, false)
+            intent.putExtra(extraRouteSpeed, settings.value.speed)
+            intent.putExtra(extraCoordType, "BD09")
+            intent.putExtra(extraSpeedFluctuation, settings.value.speedFluctuation)
+            if (currentRunMode == "root" || currentRunMode == "xposed") {
+                intent.putExtra(ServiceGoRoot.EXTRA_STEP_ENABLED, settings.value.stepFreqSimulation)
+                intent.putExtra(ServiceGoRoot.EXTRA_STEP_FREQ, settings.value.stepCadenceSpm)
+                intent.putExtra("EXTRA_STEP_SCHEME", sharedPreferences.getString("setting_sim_scheme", "0")?.toIntOrNull() ?: 0)
+                intent.putExtra("EXTRA_STEP_MODE", sharedPreferences.getInt("setting_step_mode", 0))
+                intent.putExtra("EXTRA_IS_ROUTE_SIMULATION", true)
+            }
+            if (ContextCompat.checkSelfPermission(app, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                ContextCompat.startForegroundService(app, intent)
+            } else {
+                GoUtils.DisplayToast(app, app.getString(R.string.vm_need_location_permission))
+                return@launch
+            }
+            _isSimulating.value = true
+            _isPaused.value = false
+            sharedPreferences.edit()
+                .putBoolean("route_sim_is_simulating", true)
+                .putBoolean("route_sim_is_paused", false)
+                .apply()
         }
-        if (ContextCompat.checkSelfPermission(app, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-            ContextCompat.startForegroundService(app, intent)
-        } else {
-            GoUtils.DisplayToast(app, app.getString(R.string.vm_need_location_permission))
-            return false
-        }
-        _isSimulating.value = true
-        _isPaused.value = false
-        sharedPreferences.edit()
-            .putBoolean("route_sim_is_simulating", true)
-            .putBoolean("route_sim_is_paused", false)
-            .apply()
-        return true
     }
 
     fun stopSimulation() {

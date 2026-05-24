@@ -39,7 +39,7 @@ object NativeSensorHook {
     external fun nativeSetStepSimEnabled(enabled: Boolean)
 
     @JvmStatic
-    external fun nativeInitHook(spm: Float, mode: Int, scheme: Int, enable: Boolean)
+    external fun nativeInitHook()
 
     @JvmStatic
     external fun nativeReset()
@@ -89,8 +89,8 @@ object NativeSensorHook {
                 nativeSetConvertOffset(0x5b420)
             }
 
-            nativeInitHook(spm, mode, scheme, enabled)
-            Log.i(TAG, "Native sensor hook initialized (spm=$spm, mode=$mode, scheme=$scheme, enabled=$enabled)")
+            nativeInitHook()
+            Log.i(TAG, "Native sensor hook initialized, params will be set via nativeSetGaitParams")
         } catch (e: Throwable) {
             Log.e(TAG, "init failed: ${e.message}")
         }

@@ -81,7 +81,8 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme"
         android:extractNativeLibs="true"
-        android:multiArch="true">
+        android:multiArch="true"
+        android:usesCleartextTraffic="true">
 
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
@@ -183,6 +184,13 @@
             android:screenOrientation="portrait" />
 
         <activity
+            android:name="com.kail.location.views.sponsor.CheckoutWebViewActivity"
+            android:label="@string/sponsor_title"
+            android:exported="false"
+            android:theme="@style/AppTheme.NoActionBar"
+            android:screenOrientation="portrait" />
+
+        <activity
             android:name="com.kail.location.views.nfcsimulation.NfcSimulationActivity"
             android:label="NFC模拟"
             android:exported="false"
@@ -235,6 +243,12 @@
         <activity
             android:name="com.kail.location.views.auth.LoginActivity"
             android:label="@string/login_screen_title"
+            android:exported="false"
+            android:theme="@style/AppTheme.NoActionBar" />
+
+        <activity
+            android:name="com.kail.location.views.auth.ProfileActivity"
+            android:label="@string/profile_title"
             android:exported="false"
             android:theme="@style/AppTheme.NoActionBar" />
 

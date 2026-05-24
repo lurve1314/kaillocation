@@ -11,6 +11,7 @@ import top.niunaijun.blackbox.app.configuration.ClientConfiguration
 import com.kail.location.sandbox.SandboxManager
 import com.kail.location.sandbox.SandboxSettingsManager
 import com.kail.location.auth.AuthManager
+import com.kail.location.auth.UsageManager
 import com.baidu.mapapi.SDKInitializer
 import com.baidu.location.LocationClient
 import com.baidu.mapapi.CoordType
@@ -101,6 +102,7 @@ class GoApplication : Application(), Application.ActivityLifecycleCallbacks {
         }
 
         AuthManager.init(this)
+        UsageManager.init(this)
 
         registerActivityLifecycleCallbacks(this)
 

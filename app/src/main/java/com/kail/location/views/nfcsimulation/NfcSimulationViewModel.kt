@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
 import com.kail.location.R
+import com.kail.location.auth.UsageManager
 import com.kail.location.views.nfcsimulation.NfcSimulationContract.NavigateDestination
 import com.kail.location.views.nfcsimulation.NfcSimulationContract.NfcHistoryItem
 
@@ -330,12 +331,20 @@ class NfcSimulationViewModel : ViewModel() {
             _sendResult.value = context.getString(R.string.nfc_sim_input_hint)
             return
         }
-        
-        try {
-            val result = dispatchNfc(context, _mockUrl.value, _mockPackageName.value)
-            _sendResult.value = result
-        } catch (e: Exception) {
-            _sendResult.value = context.getString(R.string.nfc_sim_send_failed, e.message)
+
+        GlobalScope.launch {
+            if (!UsageManager.canStartSimulation(context)) {
+                return@launch
+            }
+            if (!UsageManager.consumeSimulation(context)) {
+                return@launch
+            }
+            try {
+                val result = dispatchNfc(context, _mockUrl.value, _mockPackageName.value)
+                _sendResult.value = result
+            } catch (e: Exception) {
+                _sendResult.value = context.getString(R.string.nfc_sim_send_failed, e.message)
+            }
         }
     }
     

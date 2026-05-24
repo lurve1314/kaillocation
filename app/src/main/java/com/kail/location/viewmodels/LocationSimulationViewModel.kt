@@ -19,6 +19,7 @@ import com.kail.location.repositories.DataBaseHistoryLocation
 import com.kail.location.utils.MapUtils
 import com.kail.location.utils.GoUtils
 import com.kail.location.utils.KailLog
+import com.kail.location.auth.UsageManager
 import androidx.preference.PreferenceManager
 import android.database.sqlite.SQLiteDatabase
 import kotlinx.coroutines.Dispatchers
@@ -123,51 +124,59 @@ class LocationSimulationViewModel(application: Application) : AndroidViewModel(a
         val app = getApplication<Application>()
         val next = !_isSimulating.value
         if (next) {
-            val info = locationInfo.value
-            
-            // 关键修复：启动前强制同步一次最新的运行模式
-            val currentRunMode = sharedPreferences.getString("setting_run_mode", "developer") ?: "developer"
-            _runMode.value = currentRunMode
-            
-            try {
-                val wgs84 = MapUtils.bd2wgs(info.longitude, info.latitude)
-                db?.let {
-                    DataBaseHistoryLocation.addHistoryLocation(
-                        it,
-                        info.name,
-                        wgs84[0].toString(),
-                        wgs84[1].toString(),
-                        (System.currentTimeMillis() / 1000).toString(),
-                        info.longitude.toString(),
-                        info.latitude.toString()
-                    )
+            viewModelScope.launch {
+                if (!UsageManager.canStartSimulation(app)) {
+                    return@launch
                 }
-            } catch (_: Exception) {}
-            val serviceClass = if (currentRunMode == "root") ServiceGoRoot::class.java else ServiceGoDeveloper::class.java
-            val extraJoystickEnabled = if (currentRunMode == "root") ServiceGoRoot.EXTRA_JOYSTICK_ENABLED else ServiceGoDeveloper.EXTRA_JOYSTICK_ENABLED
-            val extraCoordType = if (currentRunMode == "root") ServiceGoRoot.EXTRA_COORD_TYPE else ServiceGoDeveloper.EXTRA_COORD_TYPE
-            val intent = Intent(app, serviceClass)
-            intent.putExtra(LocationPickerActivity.LNG_MSG_ID, info.longitude)
-            intent.putExtra(LocationPickerActivity.LAT_MSG_ID, info.latitude)
-            intent.putExtra(LocationPickerActivity.ALT_MSG_ID, sharedPreferences.getString("setting_altitude", "55.0")?.toDoubleOrNull() ?: 55.0)
-            intent.putExtra(extraJoystickEnabled, isJoystickEnabled.value)
-            intent.putExtra(extraCoordType, "BD09")
-            intent.putExtra("EXTRA_IS_ROUTE_SIMULATION", false)
-            
-            if (currentRunMode == "root") {
-                val stepEnabled = _stepSimulationEnabled.value
-                val cadence = _stepCadenceSpm.value
-                intent.putExtra(ServiceGoRoot.EXTRA_STEP_ENABLED, stepEnabled)
-                intent.putExtra(ServiceGoRoot.EXTRA_STEP_FREQ, cadence)
+                if (!UsageManager.consumeSimulation(app)) {
+                    return@launch
+                }
+                val info = locationInfo.value
+                
+                // 关键修复：启动前强制同步一次最新的运行模式
+                val currentRunMode = sharedPreferences.getString("setting_run_mode", "developer") ?: "developer"
+                _runMode.value = currentRunMode
+                
+                try {
+                    val wgs84 = MapUtils.bd2wgs(info.longitude, info.latitude)
+                    db?.let {
+                        DataBaseHistoryLocation.addHistoryLocation(
+                            it,
+                            info.name,
+                            wgs84[0].toString(),
+                            wgs84[1].toString(),
+                            (System.currentTimeMillis() / 1000).toString(),
+                            info.longitude.toString(),
+                            info.latitude.toString()
+                        )
+                    }
+                } catch (_: Exception) {}
+                val serviceClass = if (currentRunMode == "root") ServiceGoRoot::class.java else ServiceGoDeveloper::class.java
+                val extraJoystickEnabled = if (currentRunMode == "root") ServiceGoRoot.EXTRA_JOYSTICK_ENABLED else ServiceGoDeveloper.EXTRA_JOYSTICK_ENABLED
+                val extraCoordType = if (currentRunMode == "root") ServiceGoRoot.EXTRA_COORD_TYPE else ServiceGoDeveloper.EXTRA_COORD_TYPE
+                val intent = Intent(app, serviceClass)
+                intent.putExtra(LocationPickerActivity.LNG_MSG_ID, info.longitude)
+                intent.putExtra(LocationPickerActivity.LAT_MSG_ID, info.latitude)
+                intent.putExtra(LocationPickerActivity.ALT_MSG_ID, sharedPreferences.getString("setting_altitude", "55.0")?.toDoubleOrNull() ?: 55.0)
+                intent.putExtra(extraJoystickEnabled, isJoystickEnabled.value)
+                intent.putExtra(extraCoordType, "BD09")
+                intent.putExtra("EXTRA_IS_ROUTE_SIMULATION", false)
+                
+                if (currentRunMode == "root") {
+                    val stepEnabled = _stepSimulationEnabled.value
+                    val cadence = _stepCadenceSpm.value
+                    intent.putExtra(ServiceGoRoot.EXTRA_STEP_ENABLED, stepEnabled)
+                    intent.putExtra(ServiceGoRoot.EXTRA_STEP_FREQ, cadence)
+                }
+                
+                if (ContextCompat.checkSelfPermission(app, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                    ContextCompat.startForegroundService(app, intent)
+                } else {
+                    GoUtils.DisplayToast(app, app.getString(R.string.vm_need_location_permission))
+                    return@launch
+                }
+                _isSimulating.value = true
             }
-            
-            if (ContextCompat.checkSelfPermission(app, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-                ContextCompat.startForegroundService(app, intent)
-            } else {
-                GoUtils.DisplayToast(app, app.getString(R.string.vm_need_location_permission))
-                return
-            }
-            _isSimulating.value = true
         } else {
             val currentRunMode = sharedPreferences.getString("setting_run_mode", "developer") ?: "developer"
             val serviceClass = if (currentRunMode == "root") ServiceGoRoot::class.java else ServiceGoDeveloper::class.java

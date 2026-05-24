@@ -24,7 +24,8 @@ android {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
 
-        buildConfigField("String", "POCKETBASE_URL", "\"http://localhost:48080\"")
+        buildConfigField("String", "ADMIN_API_URL", "\"https://adminkaillocation.kaillocation.xyz/admin-api\"")
+        buildConfigField("String", "APP_API_URL", "\"https://adminkaillocation.kaillocation.xyz/app-api\"")
     }
 
     externalNativeBuild {

@@ -1,5 +1,7 @@
 package com.kail.location.views.sponsor
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -14,8 +16,41 @@ class SponsorActivity : BaseActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             locationTheme {
-                SponsorScreen(viewModel = viewModel, onBackClick = { finish() })
+                SponsorScreen(
+                    onBackClick = { finish() },
+                    onCreateCheckout = {
+                        viewModel.createCheckout { url ->
+                            if (url.isNotEmpty()) {
+                                val intent = Intent(this, CheckoutWebViewActivity::class.java).apply {
+                                    putExtra(CheckoutWebViewActivity.EXTRA_URL, url)
+                                }
+                                startActivity(intent)
+                            }
+                        }
+                    },
+                    onWechatCheckout = {
+                        viewModel.createWechatCheckout { url ->
+                            if (url.isNotEmpty()) {
+                                val clipboard = getSystemService(android.content.ClipboardManager::class.java)
+                                clipboard?.setPrimaryClip(android.content.ClipData.newPlainText("checkout", url))
+                                android.widget.Toast.makeText(this, "支付链接已复制，请在电脑浏览器中打开支付", android.widget.Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
+                    isCreatingCheckout = viewModel.isCreatingCheckout,
+                    checkoutError = viewModel.checkoutError,
+                    plans = viewModel.plans,
+                    selectedPlanId = viewModel.selectedPlanId,
+                    onSelectPlan = { viewModel.selectPlan(it) },
+                    plansLoaded = viewModel.plansLoaded
+                )
             }
         }
+        viewModel.loadPlans()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        viewModel.checkSubscriptionStatus()
     }
 }

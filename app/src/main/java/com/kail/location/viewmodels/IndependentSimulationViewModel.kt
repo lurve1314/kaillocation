@@ -3,10 +3,13 @@ package com.kail.location.viewmodels
 import android.app.Application
 import android.content.SharedPreferences
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import androidx.preference.PreferenceManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import com.kail.location.auth.UsageManager
 
 /**
  * 独立模拟页面的 ViewModel
@@ -54,6 +57,23 @@ class IndependentSimulationViewModel(application: Application) : AndroidViewMode
     val modeJitter: StateFlow<Boolean> = _modeJitter.asStateFlow()
 
     fun setEnabled(value: Boolean) {
+        if (value) {
+            viewModelScope.launch {
+                val app = getApplication<Application>()
+                if (!UsageManager.canStartSimulation(app)) {
+                    return@launch
+                }
+                if (!UsageManager.consumeSimulation(app)) {
+                    return@launch
+                }
+                doSetEnabled(true)
+            }
+        } else {
+            doSetEnabled(false)
+        }
+    }
+
+    private fun doSetEnabled(value: Boolean) {
         prefs.edit().putBoolean(KEY_INDEPENDENT_ENABLED, value).apply()
         _isEnabled.value = value
     }

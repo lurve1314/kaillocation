@@ -198,6 +198,13 @@ class ServiceGoXposed : Service() {
                         try {
                             isStop = false
                             mJoystickManager.setRoutePauseState(false)
+                            sendXposedCommand("set_step_enabled", Bundle().apply {
+                                putBoolean("enabled", stepEnabled)
+                                putInt("scheme", stepScheme)
+                            })
+                            sendXposedCommand("set_step_sim_enabled", Bundle().apply {
+                                putBoolean("enabled", stepEnabled)
+                            })
                             broadcastStatus()
                         } catch (e: Exception) {
                             KailLog.log(this, "ServiceGoXposed", "Resume error: ${e.message}", isHighFrequency = false)
@@ -236,7 +243,19 @@ class ServiceGoXposed : Service() {
                         stepCadence = intent.getFloatExtra(EXTRA_STEP_FREQ, stepCadence)
                         stepMode = intent.getIntExtra(EXTRA_STEP_MODE, stepMode)
                         stepScheme = intent.getIntExtra(EXTRA_STEP_SCHEME, stepScheme)
-                        applyStepSimulation()
+                        if (stepEnabled) {
+                            loadNativeLibraryIfNeeded()
+                        }
+                        sendXposedCommand("set_step_enabled", Bundle().apply {
+                            putBoolean("enabled", stepEnabled)
+                            putInt("scheme", stepScheme)
+                        })
+                        sendXposedCommand("set_step_cadence", Bundle().apply {
+                            putFloat("cadence", stepCadence)
+                        })
+                        sendXposedCommand("set_step_sim_enabled", Bundle().apply {
+                            putBoolean("enabled", stepEnabled)
+                        })
                         return super.onStartCommand(intent, flags, startId)
                     }
                 }
@@ -348,105 +367,44 @@ class ServiceGoXposed : Service() {
         }
         sendXposedCommand("set_config", configExtras)
 
-        // Apply step simulation settings
-        applyStepSimulation()
+        // Apply step simulation settings (matching kail_location ServiceGoRoot logic)
+        if (stepEnabled) {
+            loadNativeLibraryIfNeeded()
+        }
+        sendXposedCommand("set_step_enabled", Bundle().apply {
+            putBoolean("enabled", stepEnabled)
+            putInt("scheme", stepScheme)
+        })
+        sendXposedCommand("set_step_cadence", Bundle().apply {
+            putFloat("cadence", stepCadence)
+        })
+        sendXposedCommand("set_step_sim_enabled", Bundle().apply {
+            putBoolean("enabled", stepEnabled)
+        })
 
         KailLog.i(this, "ServiceGoXposed", "Xposed mock started")
     }
 
     private fun applyStepSimulation() {
         KailLog.i(this, "ServiceGoXposed", ">>> applyStepSimulation START: enabled=$stepEnabled, cadence=$stepCadence, mode=$stepMode, scheme=$stepScheme")
-        val selinuxRestored = {
-            try {
-                Runtime.getRuntime().exec(arrayOf("su", "-c", "setenforce 1")).waitFor()
-                KailLog.i(this, "ServiceGoXposed", "SELinux restored to enforcing")
-            } catch (e: Exception) {
-                KailLog.w(this, "ServiceGoXposed", "Failed to restore SELinux: ${e.message}")
-            }
+
+        if (stepEnabled) {
+            loadNativeLibraryIfNeeded()
         }
 
-        try {
-            if (stepEnabled) {
-                Runtime.getRuntime().exec(arrayOf("su", "-c", "setenforce 0")).waitFor()
-                KailLog.i(this, "ServiceGoXposed", "SELinux set to permissive for step simulation")
+        // Send step simulation commands separately (matching kail_location ServiceGoRoot logic)
+        sendXposedCommand("set_step_enabled", Bundle().apply {
+            putBoolean("enabled", stepEnabled)
+            putInt("scheme", stepScheme)
+        })
+        sendXposedCommand("set_step_cadence", Bundle().apply {
+            putFloat("cadence", stepCadence)
+        })
+        sendXposedCommand("set_step_sim_enabled", Bundle().apply {
+            putBoolean("enabled", stepEnabled)
+        })
 
-                copyNativeSoForStepSimulation()
-                resolveAndCacheSensorOffsets()
-
-                val loadOk = waitForLibraryLoaded()
-                if (!loadOk) {
-                    KailLog.e(this, "ServiceGoXposed", "SO not loaded in system_server")
-                }
-            } else {
-                KailLog.i(this, "ServiceGoXposed", ">>> Step disabled")
-            }
-
-            val stepExtras = Bundle().apply {
-                putBoolean("enabled", stepEnabled)
-                putInt("mode", stepMode)
-                putInt("scheme", stepScheme)
-                putFloat("cadence", stepCadence)
-            }
-            KailLog.i(this, "ServiceGoXposed", ">>> Sending set_step_enabled: enabled=$stepEnabled, cadence=$stepCadence, mode=$stepMode, scheme=$stepScheme")
-            sendXposedCommand("set_step_enabled", stepExtras)
-
-            KailLog.i(this, "ServiceGoXposed", "Step simulation applied: enabled=$stepEnabled, cadence=$stepCadence, mode=$stepMode, scheme=$stepScheme")
-        } finally {
-            selinuxRestored()
-        }
-    }
-
-    private fun resolveAndCacheSensorOffsets() {
-        val offsetCacheFile = "/data/local/tmp/kail_sensor_offsets.txt"
-        val cache = java.io.File(offsetCacheFile)
-        if (cache.exists()) {
-            KailLog.i(this, "ServiceGoXposed", "Sensor offset cache already exists")
-            return
-        }
-
-        try {
-            val readelfCmds = listOf("toybox readelf", "readelf", "/system/bin/toybox readelf")
-            var sendOffset = ""
-            var convertOffset = ""
-
-            for (cmd in readelfCmds) {
-                val test = runSuCommand("$cmd 2>&1")
-                if (test.contains("not found") || (test.isEmpty() && !cmd.startsWith("/"))) continue
-
-                if (sendOffset.isEmpty()) {
-                    val out = runSuCommand("$cmd -Ws /system/lib64/libsensor.so 2>/dev/null | grep _ZN7android7BitTube11sendObjects")
-                    if (out.isNotEmpty()) {
-                        sendOffset = out.trim().lines().firstOrNull()?.trim()
-                            ?.split(Regex("\\s+"))
-                            ?.firstOrNull { it.matches(Regex("^[0-9a-fA-F]{8,16}$")) } ?: ""
-                    }
-                }
-                if (convertOffset.isEmpty()) {
-                    val out = runSuCommand("$cmd -Ws /system/lib64/libsensorservice.so 2>/dev/null | grep '_ZN7android8hardware7sensors14implementation20convertToSensorEvent[^4V1]'")
-                    val outV1 = runSuCommand("$cmd -Ws /system/lib64/libsensorservice.so 2>/dev/null | grep '_ZN7android8hardware7sensors4V1_014implementation20convertToSensorEvent'")
-                    val raw = if (out.isNotEmpty()) out else outV1
-                    if (raw.isNotEmpty()) {
-                        convertOffset = raw.trim().lines().firstOrNull()?.trim()
-                            ?.split(Regex("\\s+"))
-                            ?.firstOrNull { it.matches(Regex("^[0-9a-fA-F]{8,16}$")) } ?: ""
-                    }
-                }
-                if (sendOffset.isNotEmpty() && convertOffset.isNotEmpty()) break
-            }
-
-            if (sendOffset.isNotEmpty() && convertOffset.isNotEmpty()) {
-                val sendHex = if (sendOffset.startsWith("0x")) sendOffset else "0x$sendOffset"
-                val convertHex = if (convertOffset.startsWith("0x")) convertOffset else "0x$convertOffset"
-                val content = "send_objects=$sendHex\nconvert_to_sensor_event=$convertHex\n"
-                runSuCommand("echo '$content' > $offsetCacheFile")
-                runSuCommand("chmod 777 $offsetCacheFile")
-                KailLog.i(this, "ServiceGoXposed", "Cached sensor offsets: send=$sendHex, convert=$convertHex")
-            } else {
-                KailLog.w(this, "ServiceGoXposed", "Could not resolve sensor offsets, step sim may not work")
-            }
-        } catch (e: Exception) {
-            KailLog.e(this, "ServiceGoXposed", "Failed to resolve sensor offsets: ${e.message}")
-        }
+        KailLog.i(this, "ServiceGoXposed", "Step simulation applied: enabled=$stepEnabled, cadence=$stepCadence, mode=$stepMode, scheme=$stepScheme")
     }
 
     private fun runSuCommand(cmd: String): String {
@@ -460,32 +418,50 @@ class ServiceGoXposed : Service() {
         }
     }
 
-    private fun waitForLibraryLoaded(): Boolean {
-        val destSo = java.io.File("/data/local/kail-lib/libkail_native_hook.so")
-        if (!destSo.exists()) {
-            KailLog.e(this, "ServiceGoXposed", "SO file not found at ${destSo.absolutePath}")
-            return false
-        }
+    private fun getOffsetsFromSystem(): Pair<String, String> {
+        val commands = listOf("toybox readelf", "readelf", "/system/bin/toybox readelf")
+        for (cmd in commands) {
+            try {
+                KailLog.i(this, "ServiceGoXposed", ">>> Trying command: $cmd")
+                val testCmd = runSuCommand("$cmd 2>&1")
+                if (testCmd.contains("not found") || (testCmd.isEmpty() && !cmd.startsWith("/"))) {
+                    continue
+                }
+                val sensorOut = runSuCommand("$cmd -Ws /system/lib64/libsensor.so 2>/dev/null | grep _ZN7android7BitTube11sendObjects")
+                val sensorServiceOut = runSuCommand("$cmd -Ws /system/lib64/libsensorservice.so 2>/dev/null | grep '_ZN7android8hardware7sensors14implementation20convertToSensorEvent[^4V1]'")
+                val sensorServiceV1Out = runSuCommand("$cmd -Ws /system/lib64/libsensorservice.so 2>/dev/null | grep '_ZN7android8hardware7sensors4V1_014implementation20convertToSensorEvent'")
 
-        val loadExtras = Bundle().apply {
-            putString("path", destSo.absolutePath)
-        }
+                KailLog.i(this, "ServiceGoXposed", ">>> sensorOut: $sensorOut")
+                KailLog.i(this, "ServiceGoXposed", ">>> sensorServiceOut: $sensorServiceOut")
+                KailLog.i(this, "ServiceGoXposed", ">>> sensorServiceV1Out: $sensorServiceV1Out")
 
-        var retries = 3
-        while (retries > 0) {
-            val result = sendXposedCommand("load_library", loadExtras)
-            if (result) {
-                KailLog.i(this, "ServiceGoXposed", "SO loaded successfully in system_server")
-                return true
+                if (sensorOut.isNotEmpty()) {
+                    val sensorOffset = parseReadelfOffset(sensorOut)
+                    val sensorServiceOffset = when {
+                        sensorServiceOut.isNotEmpty() -> parseReadelfOffset(sensorServiceOut)
+                        sensorServiceV1Out.isNotEmpty() -> parseReadelfOffset(sensorServiceV1Out)
+                        else -> ""
+                    }
+                    if (sensorOffset.isNotEmpty() && sensorServiceOffset.isNotEmpty()) {
+                        val finalSensorOffset = if (sensorOffset.startsWith("0x")) sensorOffset else "0x$sensorOffset"
+                        val finalSensorServiceOffset = if (sensorServiceOffset.startsWith("0x")) sensorServiceOffset else "0x$sensorServiceOffset"
+                        KailLog.i(this, "ServiceGoXposed", ">>> Got offsets: sensor=$finalSensorOffset, sensorService=$finalSensorServiceOffset")
+                        return Pair(finalSensorOffset, finalSensorServiceOffset)
+                    }
+                }
+            } catch (e: Exception) {
+                KailLog.e(this, "ServiceGoXposed", ">>> getOffsets exception: ${e.message}")
+                continue
             }
-            retries--
-            if (retries > 0) {
-                Thread.sleep(500)
-            }
         }
+        KailLog.w(this, "ServiceGoXposed", ">>> readelf not available, skipping sensor offset detection")
+        return Pair("0x0", "0x0")
+    }
 
-        KailLog.e(this, "ServiceGoXposed", "Failed to load SO after retries")
-        return false
+    private fun parseReadelfOffset(output: String): String {
+        val trimmed = output.trim().lines().firstOrNull()?.trim() ?: return ""
+        val parts = trimmed.split(Regex("\\s+"))
+        return parts.firstOrNull { it.matches(Regex("^[0-9a-fA-F]{8,16}$")) } ?: ""
     }
 
     private fun copyNativeSoForStepSimulation() {
@@ -521,6 +497,81 @@ class ServiceGoXposed : Service() {
         }
     }
 
+    private fun loadNativeLibraryIfNeeded(): Boolean {
+        KailLog.i(this, "ServiceGoXposed", ">>> loadNativeLibraryIfNeeded called")
+
+        if (!com.kail.location.utils.ShellUtils.hasRoot()) {
+            KailLog.e(this, "ServiceGoXposed", ">>> No root access!")
+            return false
+        }
+
+        KailLog.i(this, "ServiceGoXposed", ">>> Root access OK")
+
+        val selinuxResult = com.kail.location.utils.ShellUtils.executeCommand("setenforce 0")
+        KailLog.i(this, "ServiceGoXposed", ">>> setenforce 0 result: $selinuxResult")
+
+        val soDir = java.io.File("/data/local/kail-lib")
+        com.kail.location.utils.ShellUtils.executeCommand("rm -rf ${soDir.absolutePath}")
+        com.kail.location.utils.ShellUtils.executeCommand("mkdir -p ${soDir.absolutePath}")
+        com.kail.location.utils.ShellUtils.executeCommand("chmod 777 ${soDir.absolutePath}")
+        com.kail.location.utils.ShellUtils.executeCommand("chcon u:object_r:system_file:s0 ${soDir.absolutePath}")
+        KailLog.i(this, "ServiceGoXposed", ">>> Directory created: ${soDir.absolutePath}")
+
+        val soFile = java.io.File(soDir, "libkail_native_hook.so")
+
+        runCatching {
+            val nativeDir = applicationInfo.nativeLibraryDir
+            val apkSoFile = java.io.File(nativeDir, "libkail_native_hook.so")
+            KailLog.i(this, "ServiceGoXposed", ">>> nativeDir: $nativeDir")
+            KailLog.i(this, "ServiceGoXposed", ">>> apkSoFile: ${apkSoFile.absolutePath}, exists: ${apkSoFile.exists()}")
+
+            if (apkSoFile.exists()) {
+                val copyResult = com.kail.location.utils.ShellUtils.executeCommand("cp ${apkSoFile.absolutePath} ${soFile.absolutePath}")
+                KailLog.i(this, "ServiceGoXposed", ">>> cp result: $copyResult")
+                val chmodResult = com.kail.location.utils.ShellUtils.executeCommand("chmod 777 ${soFile.absolutePath}")
+                KailLog.i(this, "ServiceGoXposed", ">>> chmod result: $chmodResult")
+                val chconResult = com.kail.location.utils.ShellUtils.executeCommand("chcon u:object_r:system_file:s0 ${soFile.absolutePath}")
+                KailLog.i(this, "ServiceGoXposed", ">>> chcon result: $chconResult")
+
+                KailLog.i(this, "ServiceGoXposed", ">>> Restoring SELinux to enforcing mode")
+                val selinuxRestoreResult = com.kail.location.utils.ShellUtils.executeCommand("setenforce 1")
+                KailLog.i(this, "ServiceGoXposed", ">>> setenforce 1 result: $selinuxRestoreResult")
+            } else {
+                KailLog.e(this, "ServiceGoXposed", ">>> apkSoFile does NOT exist!")
+            }
+        }.onFailure {
+            KailLog.e(this, "ServiceGoXposed", ">>> Failed to copy native library: ${it.message}")
+            return false
+        }
+
+        KailLog.i(this, "ServiceGoXposed", ">>> soFile exists: ${soFile.exists()}")
+
+        KailLog.i(this, "ServiceGoXposed", ">>> Getting offsets...")
+        val offsets = getOffsetsFromSystem()
+        KailLog.i(this, "ServiceGoXposed", ">>> Got offsets: writeOffset=${offsets.first}, convertOffset=${offsets.second}")
+
+        val loadResult = sendXposedCommand("load_library", Bundle().apply {
+            putString("path", soFile.absolutePath)
+            putString("write_offset", offsets.first)
+            putString("convert_offset", offsets.second)
+        })
+        
+        KailLog.i(this, "ServiceGoXposed", ">>> loadResult: $loadResult")
+        
+        if (loadResult && stepEnabled) {
+            sendXposedCommand("set_route_simulation", Bundle().apply {
+                putBoolean("active", true)
+                putFloat("spm", stepCadence)
+                putInt("mode", 0)
+            })
+            KailLog.i(this, "ServiceGoXposed", ">>> Native hook loaded for route simulation")
+        } else {
+            KailLog.e(this, "ServiceGoXposed", ">>> Load failed!")
+        }
+
+        return loadResult
+    }
+
     override fun onDestroy() {
         KailLog.i(this, "ServiceGoXposed", "onDestroy started")
         try {
@@ -531,9 +582,16 @@ class ServiceGoXposed : Service() {
             if (this::mLocHandlerThread.isInitialized) mLocHandlerThread.quit()
             if (this::mJoystickManager.isInitialized) mJoystickManager.destroy()
 
+            // Stop route simulation first
+            sendXposedCommand("set_route_simulation", Bundle().apply {
+                putBoolean("active", false)
+                putFloat("spm", 120f)
+                putInt("mode", 0)
+            })
+            KailLog.i(this, "ServiceGoXposed", ">>> Sent route simulation stop")
+
             // Stop Xposed module
             sendXposedCommand("stop")
-            // NativeSensorHook.reset() // Removed: Xposed module handles cleanup via "stop" command
 
             mNotificationHelper.stopForeground()
         } catch (e: Exception) {

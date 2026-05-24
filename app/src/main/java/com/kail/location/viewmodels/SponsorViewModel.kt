@@ -1,45 +1,109 @@
 package com.kail.location.viewmodels
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import com.google.zxing.qrcode.QRCodeWriter
-import com.google.zxing.BarcodeFormat
-import com.google.zxing.EncodeHintType
-import android.graphics.Bitmap
-import kotlinx.coroutines.flow.update
+import androidx.lifecycle.viewModelScope
+import com.kail.location.auth.AuthManager
+import com.kail.location.network.RuoYiClient
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
 
 class SponsorViewModel : ViewModel() {
-    private val _address = MutableStateFlow("TVvudxmNTwzRFe3z7ts9srZE1srkqXgmxm")
-    val address: StateFlow<String> = _address.asStateFlow()
 
-    private val _qrBitmap = MutableStateFlow<Bitmap?>(null)
-    val qrBitmap: StateFlow<Bitmap?> = _qrBitmap.asStateFlow()
+    var plans by mutableStateOf<List<RuoYiClient.SubscriptionPlan>>(emptyList())
+        private set
+    var selectedPlanId by mutableStateOf<Long?>(null)
+        private set
+    var isCreatingCheckout by mutableStateOf(false)
+        private set
+    var checkoutError by mutableStateOf<String?>(null)
+        private set
+    var plansLoaded by mutableStateOf(false)
 
-    init {
-        generateQr(_address.value)
+    fun loadPlans() {
+        val token = AuthManager.token ?: return
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                RuoYiClient.getPlans(token)
+            }
+            result.fold(
+                onSuccess = { planList ->
+                    plans = planList
+                    plansLoaded = true
+                    if (planList.isNotEmpty()) {
+                        selectedPlanId = planList.first().id
+                    }
+                },
+                onFailure = { /* ignore */ }
+            )
+        }
     }
 
-    fun generateQr(text: String) {
-        _address.update { text }
-        try {
-            val size = 600
-            val hints = mapOf(
-                EncodeHintType.CHARACTER_SET to "UTF-8",
-                EncodeHintType.MARGIN to 1
-            )
-            val bitMatrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, size, size, hints)
-            val width = bitMatrix.width
-            val height = bitMatrix.height
-            val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            for (x in 0 until width) {
-                for (y in 0 until height) {
-                    bmp.setPixel(x, y, if (bitMatrix.get(x, y)) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+    fun selectPlan(planId: Long) {
+        selectedPlanId = planId
+    }
+
+    private fun createCheckoutUrl(onUrl: (String) -> Unit) {
+        val token = AuthManager.token ?: run { checkoutError = "未登录"; return }
+        val planId = selectedPlanId ?: run { checkoutError = "请选择套餐"; return }
+
+        isCreatingCheckout = true
+        checkoutError = null
+
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val url = "${RuoYiClient.baseUrl}/member/subscription/create-checkout"
+                    val jsonBody = JSONObject().apply { put("planId", planId) }
+                    val request = Request.Builder()
+                        .url(url)
+                        .post(jsonBody.toString().toRequestBody("application/json".toMediaType()))
+                        .header("Authorization", "Bearer $token")
+                        .header("Content-Type", "application/json")
+                        .header("tenant-id", "1")
+                        .build()
+                    val response = RuoYiClient.okHttpClient.newCall(request).execute()
+                    val body = response.body?.string() ?: ""
+                    val root = JSONObject(body)
+                    if (root.optInt("code", -1) == 0) {
+                        root.getJSONObject("data").getString("checkoutUrl")
+                    } else {
+                        throw Exception(root.optString("msg", "创建结算页面失败"))
+                    }
                 }
             }
-            _qrBitmap.value = bmp
-        } catch (_: Exception) { }
+            result.fold(
+                onSuccess = { url -> onUrl(url) },
+                onFailure = { error -> checkoutError = error.message }
+            )
+            isCreatingCheckout = false
+        }
+    }
+
+    fun createCheckout(onUrl: (String) -> Unit) { createCheckoutUrl(onUrl) }
+    fun createWechatCheckout(onUrl: (String) -> Unit) { createCheckoutUrl(onUrl) }
+
+    fun checkSubscriptionStatus() {
+        val token = AuthManager.token ?: return
+
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                RuoYiClient.getSubscriptionStatus(token)
+            }
+
+            result.fold(
+                onSuccess = { status ->
+                    AuthManager.updateSubscription(status.active, status.expiresAt)
+                },
+                onFailure = { /* ignore */ }
+            )
+        }
     }
 }
-

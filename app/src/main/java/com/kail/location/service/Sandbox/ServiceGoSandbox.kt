@@ -16,6 +16,7 @@ import com.kail.location.utils.service.RouteEngine
 import com.kail.location.utils.GoUtils
 import com.kail.location.utils.KailLog
 import com.kail.location.utils.MapUtils
+import com.kail.location.sandbox.SandboxStepConfig
 import com.kail.location.viewmodels.JoystickViewModel
 import com.kail.location.views.joystick.JoystickWindowManager
 import com.kail.location.views.locationpicker.LocationPickerActivity
@@ -195,6 +196,10 @@ class ServiceGoSandbox : Service() {
                         return super.onStartCommand(intent, flags, startId)
                     }
                     CONTROL_SET_STEP -> {
+                        val stepEnabled = intent.getBooleanExtra(EXTRA_STEP_ENABLED, false)
+                        val stepFreq = intent.getFloatExtra(EXTRA_STEP_FREQ, 120f)
+                        SandboxStepConfig.writeConfig(this, stepEnabled, stepFreq)
+                        KailLog.i(this, "ServiceGoSandbox", "Step sim updated: enabled=$stepEnabled, freq=$stepFreq")
                         return super.onStartCommand(intent, flags, startId)
                     }
                 }
@@ -242,8 +247,8 @@ class ServiceGoSandbox : Service() {
             }
 
             val stepEnabled = intent.getBooleanExtra(EXTRA_STEP_ENABLED, false)
-            if (stepEnabled) {
-            }
+            val stepFreq = intent.getFloatExtra(EXTRA_STEP_FREQ, 120f)
+            SandboxStepConfig.writeConfig(this, stepEnabled, stepFreq)
 
             try {
                 mJoystickViewModel.setCurrentPosition(mCurLng, mCurLat, mCurAlt)
@@ -279,6 +284,7 @@ class ServiceGoSandbox : Service() {
             if (this::mJoystickManager.isInitialized) mJoystickManager.destroy()
 
             SandboxLocationHook.disableSimulation()
+            SandboxStepConfig.clearConfig(this)
 
             mNotificationHelper.stopForeground()
         } catch (e: Exception) {

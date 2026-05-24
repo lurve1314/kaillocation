@@ -8,6 +8,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
@@ -25,14 +26,18 @@ import com.kail.location.auth.AuthManager
  * @param version The app version string to display.
  */
 @Composable
-fun DrawerHeader(version: String, onLoginClick: (() -> Unit)? = null) {
-    val isLoggedIn = AuthManager.isLoggedIn
-    val userEmail = AuthManager.email ?: ""
+fun DrawerHeader(version: String, onLoginClick: (() -> Unit)? = null, onProfileClick: (() -> Unit)? = null) {
+    val isLoggedIn by AuthManager.isLoggedInState
+    val userEmail by AuthManager.emailState
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.primaryContainer)
+            .clickable {
+                if (isLoggedIn) onProfileClick?.invoke()
+                else onLoginClick?.invoke()
+            }
             .padding(16.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -64,9 +69,7 @@ fun DrawerHeader(version: String, onLoginClick: (() -> Unit)? = null) {
                     Text(
                         text = stringResource(R.string.drawer_not_logged_in),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier
-                            .clickable { onLoginClick?.invoke() }
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
             }

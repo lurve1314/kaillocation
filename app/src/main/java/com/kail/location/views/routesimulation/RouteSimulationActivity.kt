@@ -162,13 +162,7 @@ class RouteSimulationActivity : BaseActivity(), SensorEventListener {
                             onAddRouteClick = { currentScreen = Screen.PLAN },
                             appVersion = version,
                             onStartSimulation = { settings ->
-                                try {
-                                    if (!viewModel.startSimulation()) {
-                                        android.widget.Toast.makeText(this@RouteSimulationActivity, getString(R.string.route_sim_need_route), android.widget.Toast.LENGTH_SHORT).show()
-                                    }
-                                } catch (e: Exception) {
-                                    android.widget.Toast.makeText(this@RouteSimulationActivity, getString(R.string.route_sim_start_failed), android.widget.Toast.LENGTH_SHORT).show()
-                                }
+                                viewModel.startSimulation()
                             },
                             onStopSimulation = {
                                 viewModel.stopSimulation()

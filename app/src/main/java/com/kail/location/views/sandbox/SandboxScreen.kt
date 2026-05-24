@@ -554,6 +554,9 @@ fun SandboxSettingsDialog(
     var isSupportGms by remember { mutableStateOf(false) }
     var toastMessage by remember { mutableStateOf<String?>(null) }
     var isSendingLogs by remember { mutableStateOf(false) }
+    var stepSimEnabled by remember { mutableStateOf(false) }
+    var stepSimSpm by remember { mutableStateOf(120f) }
+    var showStepSimDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         try {
@@ -564,6 +567,19 @@ fun SandboxSettingsDialog(
             isSupportGms = SandboxSettingsManager.isSupportGms
         } catch (e: Exception) {
             android.util.Log.e("SandboxSettings", "Error loading settings: ${e.message}")
+        }
+    }
+
+    LaunchedEffect(stepSimEnabled, stepSimSpm) {
+        val intent = android.content.Intent(context, com.kail.location.service.Sandbox.ServiceGoSandbox::class.java).apply {
+            putExtra(com.kail.location.service.Sandbox.ServiceGoSandbox.EXTRA_CONTROL_ACTION, com.kail.location.service.Sandbox.ServiceGoSandbox.CONTROL_SET_STEP)
+            putExtra(com.kail.location.service.Sandbox.ServiceGoSandbox.EXTRA_STEP_ENABLED, stepSimEnabled)
+            putExtra(com.kail.location.service.Sandbox.ServiceGoSandbox.EXTRA_STEP_FREQ, stepSimSpm)
+        }
+        try {
+            context.startService(intent)
+        } catch (e: Exception) {
+            android.util.Log.e("SandboxSettings", "Failed to send step sim config: ${e.message}")
         }
     }
 
@@ -624,6 +640,20 @@ fun SandboxSettingsDialog(
                     }
                 )
                 Divider(modifier = Modifier.padding(vertical = 8.dp))
+                SettingsSwitchRow(
+                    title = "步频模拟",
+                    description = "为沙盒应用模拟步频传感器数据",
+                    checked = stepSimEnabled,
+                    onCheckedChange = { stepSimEnabled = it }
+                )
+                if (stepSimEnabled) {
+                    SettingsActionRow(
+                        title = "步频: ${stepSimSpm.toInt()} 步/分钟",
+                        description = "点击调整步频",
+                        onClick = { showStepSimDialog = true }
+                    )
+                }
+                Divider(modifier = Modifier.padding(vertical = 8.dp))
                 if (isSupportGms) {
                     SettingsActionRow(
                         title = "GMS 管理",
@@ -675,6 +705,40 @@ fun SandboxSettingsDialog(
             }
         }
     )
+
+    if (showStepSimDialog) {
+        var tempSpm by remember { mutableStateOf(stepSimSpm) }
+        AlertDialog(
+            onDismissRequest = { showStepSimDialog = false },
+            title = { Text("调整步频") },
+            text = {
+                Column {
+                    Text("${tempSpm.toInt()} 步/分钟", fontSize = 18.sp, fontWeight = FontWeight.Medium)
+                    Slider(
+                        value = tempSpm,
+                        onValueChange = { tempSpm = it },
+                        valueRange = 30f..240f,
+                        steps = 20,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
+                    Text("步频范围: 30 - 240 步/分钟", fontSize = 12.sp, color = Color.Gray)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    stepSimSpm = tempSpm
+                    showStepSimDialog = false
+                }) {
+                    Text(stringResource(R.string.common_ok))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showStepSimDialog = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            }
+        )
+    }
 }
 
 @Composable
