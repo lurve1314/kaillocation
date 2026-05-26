@@ -163,7 +163,7 @@ fun NavigationSimulationScreen(
                 TopAppBar(
                     title = { Text(stringResource(R.string.nav_sim_title), color = Color.White) },
                     navigationIcon = {
-                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                        IconButton(onClick = { scope.launch { drawerState.animateTo(DrawerValue.Open, androidx.compose.animation.core.tween(durationMillis = 160)) } }) {
                             Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Color.White)
                         }
                     },
@@ -362,9 +362,6 @@ fun NavigationSimulationScreen(
                                     style = MaterialTheme.typography.bodyMedium
                                 )
                             }
-                        }
-                        item {
-                            com.kail.location.ads.NativeAdCard()
                         }
                     }
                 }

@@ -77,6 +77,7 @@ class ServiceGoRoot : Service() {
         const val DEFAULT_BEA = 0.0f
 
         private const val HANDLER_MSG_ID = 0
+        private const val DEFAULT_LOCATION_UPDATE_INTERVAL_MS = 200L
         private const val SERVICE_GO_HANDLER_NAME = "ServiceGoRootLocation"
 
         private const val SERVICE_GO_NOTE_ID = 1
@@ -429,10 +430,10 @@ class ServiceGoRoot : Service() {
 
             isStop = true
             if (this::mLocHandler.isInitialized) {
-                mLocHandler.removeMessages(HANDLER_MSG_ID)
+                mLocHandler.removeCallbacksAndMessages(null)
             }
             if (this::mLocHandlerThread.isInitialized) {
-                mLocHandlerThread.quit()
+                mLocHandlerThread.quitSafely()
             }
 
             if (this::mJoystickManager.isInitialized) {
@@ -544,13 +545,11 @@ class ServiceGoRoot : Service() {
     }
 
     private fun initGoLocation() {
-        mLocHandlerThread = HandlerThread(SERVICE_GO_HANDLER_NAME, Process.THREAD_PRIORITY_FOREGROUND)
+        mLocHandlerThread = HandlerThread(SERVICE_GO_HANDLER_NAME, Process.THREAD_PRIORITY_BACKGROUND)
         mLocHandlerThread.start()
         mLocHandler = object : Handler(mLocHandlerThread.looper) {
             override fun handleMessage(msg: Message) {
                 try {
-                    Thread.sleep(50)
-
                     if (!isStop) {
                         if (mRoutePoints.size >= 2) {
                             val speedForStep = if (speedFluctuation) {
@@ -558,7 +557,8 @@ class ServiceGoRoot : Service() {
                             } else {
                                 mSpeed
                             }
-                            advanceAlongRoute(speedForStep * 0.05)
+                            val intervalMs = currentLocationUpdateIntervalMs()
+                            advanceAlongRoute(speedForStep * (intervalMs / 1000.0))
                             updateJoystickStatus()
                         }
                     }
@@ -567,18 +567,26 @@ class ServiceGoRoot : Service() {
                         kailTick()
                     }
 
-                    sendEmptyMessage(HANDLER_MSG_ID)
+                    if (!isStop) {
+                        sendEmptyMessageDelayed(HANDLER_MSG_ID, currentLocationUpdateIntervalMs())
+                    }
                 } catch (e: InterruptedException) {
                     KailLog.e(this@ServiceGoRoot, "ServiceGoRoot", "handleMessage interrupted: ${e.message}")
                     Thread.currentThread().interrupt()
                 } catch (e: Exception) {
                     KailLog.e(this@ServiceGoRoot, "ServiceGoRoot", "handleMessage exception: ${e.message}")
                     if (!isStop) {
-                        sendEmptyMessageDelayed(HANDLER_MSG_ID, 100)
+                        sendEmptyMessageDelayed(HANDLER_MSG_ID, currentLocationUpdateIntervalMs())
                     }
                 }
             }
         }
+    }
+
+    private fun currentLocationUpdateIntervalMs(): Long {
+        val prefs = PreferenceManager.getDefaultSharedPreferences(this)
+        return (prefs.getString("setting_report_interval", DEFAULT_LOCATION_UPDATE_INTERVAL_MS.toString())?.toLongOrNull()
+            ?: DEFAULT_LOCATION_UPDATE_INTERVAL_MS).coerceAtLeast(0L)
     }
 
     private fun startLocationLoop() {
@@ -806,9 +814,12 @@ class ServiceGoRoot : Service() {
                 putBoolean("hookWifi", prefs.getBoolean("setting_disable_wifi_scan", true))
                 putBoolean("needDowngradeToCdma", prefs.getBoolean("setting_downgrade_to_cdma", true))
                 putBoolean("loopBroadcastLocation", prefs.getBoolean("setting_loop_broadcast", false))
+                putBoolean("enableNaturalJitter", prefs.getBoolean("setting_natural_jitter", false))
                 putInt("minSatellites", prefs.getString("setting_min_satellites", "12")?.toIntOrNull() ?: 12)
-                putFloat("accuracy", prefs.getString("setting_accuracy", "25.0")?.toFloatOrNull() ?: 25.0f)
-                putInt("reportIntervalMs", prefs.getString("setting_report_interval", "100")?.toIntOrNull() ?: 100)
+                putFloat("accuracy", prefs.getString("setting_accuracy", "2.5")?.toFloatOrNull() ?: 2.5f)
+                putInt("reportIntervalMs", prefs.getString("setting_report_interval", "200")?.toIntOrNull() ?: 200)
+                putBoolean("enableFileLog", prefs.getBoolean("setting_log_enabled", false))
+                putBoolean("enableDebugLog", prefs.getBoolean("setting_debug_log_enabled", false))
             }
             KailLog.i(this, "ServiceGoRoot", "pushConfigToXposed succeeded")
         } catch (e: Exception) {
@@ -839,36 +850,29 @@ class ServiceGoRoot : Service() {
         val lng = mCurLng
         val bearing = mCurBea.toDouble()
 //        KailLog.log(this, "ServiceGoRoot", "Kail Tick: lat=$lat, lng=$lng, speed=$speedToSet", isHighFrequency = true)
-// Use ThreadPool to send commands without blocking main loop
         val key = kailRandomKey ?: return
         val locMgr = mLocManager
         val provider = KAIL_PROVIDER
-        
-        Thread {
+
+        fun sendCmd(cmdId: String, block: Bundle.() -> Unit) {
             try {
-                fun sendCmd(cmdId: String, block: Bundle.() -> Unit) {
-                    try {
-                        val rely = Bundle()
-                        rely.putString("command_id", cmdId)
-                        rely.block()
-                        locMgr.sendExtraCommand(provider, key, rely)
-                    } catch (e: Exception) {
-                        // Silent fail
-                    }
-                }
-                
-                sendCmd("set_speed") { putFloat("speed", speedToSet) }
-                sendCmd("set_bearing") { putDouble("bearing", bearing) }
-                sendCmd("update_location") {
-                    putDouble("lat", lat)
-                    putDouble("lon", lng)
-                    putString("mode", "=")
-                }
-                sendCmd("broadcast_location") { }
+                val rely = Bundle()
+                rely.putString("command_id", cmdId)
+                rely.block()
+                locMgr.sendExtraCommand(provider, key, rely)
             } catch (e: Exception) {
                 // Silent fail
             }
-        }.start()
+        }
+
+        sendCmd("set_speed") { putFloat("speed", speedToSet) }
+        sendCmd("set_bearing") { putDouble("bearing", bearing) }
+        sendCmd("update_location") {
+            putDouble("lat", lat)
+            putDouble("lon", lng)
+            putString("mode", "=")
+        }
+        sendCmd("broadcast_location") { }
     }
 
     private fun kailStopSafe() {

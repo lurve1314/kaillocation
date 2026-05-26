@@ -46,6 +46,8 @@ private const val MEO_MAX_CN0 = 40.0f
 private const val BDS_B1I_FREQ = 1561.098f // MHz
 private const val BDS_B2I_FREQ = 1207.140f
 private const val BDS_B3I_FREQ = 1268.520f
+private const val MAX_TRACKED_GNSS_LISTENERS = 128
+private const val MAX_TRACKED_LOCATION_LISTENERS = 256
 
 private val satelliteList = listOf(
     BDSSatellite(1, OrbitType.GEO),
@@ -304,13 +306,38 @@ private val gnssPushRunnable = object : Runnable {
                 }
             }
         }
+        trimGnssListenersIfNeeded()
 
         gnssPushHandler.postDelayed(this, 1000)
     }
 }
 
+private fun trimGnssListenersIfNeeded() {
+    if (activeGnssListeners.size <= MAX_TRACKED_GNSS_LISTENERS) return
+    activeGnssListeners.take(activeGnssListeners.size - MAX_TRACKED_GNSS_LISTENERS).forEach {
+        activeGnssListeners.remove(it)
+    }
+}
+
 internal object LocationServiceHook: BaseLocationHook() {
     val locationListeners = LinkedBlockingQueue<Pair<String, IInterface>>()
+    private var pullbackPushStarted = false
+    private val pullbackPushHandler: Handler by lazy {
+        val thread = HandlerThread("KailPullbackPusher").apply { start() }
+        Handler(thread.looper)
+    }
+    private val pullbackPushRunnable = object : Runnable {
+        override fun run() {
+            if (FakeLoc.enable && FakeLoc.loopBroadcastLocation && locationListeners.isNotEmpty()) {
+                kotlin.runCatching {
+                    callOnLocationChanged()
+                }.onFailure {
+                    KailLog.e(null, "Kail_Xposed", "Pullback broadcast failed: ${it.message}")
+                }
+            }
+            pullbackPushHandler.postDelayed(this, FakeLoc.reportIntervalMs.toLong())
+        }
+    }
 
     // A random command is generated to prevent some apps from detecting Kail
     operator fun invoke(classLoader: ClassLoader) {
@@ -320,7 +347,7 @@ internal object LocationServiceHook: BaseLocationHook() {
         } else {
             onService(cLocationManagerService)
         }
-        //startDaemon(classLoader)
+        ensurePullbackPushStarted()
     }
 
     fun onService(cILocationManager: Class<*>) {
@@ -608,6 +635,7 @@ internal object LocationServiceHook: BaseLocationHook() {
                     }
 
                     // 保存 listener 用于主动推送
+                    trimGnssListenersIfNeeded()
                     activeGnssListeners.add(callback)
                     if (!gnssPushStarted) {
                         gnssPushStarted = true
@@ -772,13 +800,30 @@ internal object LocationServiceHook: BaseLocationHook() {
 //        })
 
         cILocationManager.hookAllMethods("getCurrentLocation", beforeHook {
-            val callback = args[2] ?: return@beforeHook
+            if (!FakeLoc.enable) return@beforeHook
+            val callback = args.firstOrNull { arg ->
+                arg != null && arg.javaClass.methods.any { it.name == "onLocation" && it.parameterTypes.size == 1 }
+            } ?: return@beforeHook
 
             if (FakeLoc.enableDebugLog) {
                 KailLog.d(null, "Kail_Xposed", "getCurrentLocation: injected!")
             }
 
-            if (FakeLoc.disableGetCurrentLocation) {
+            val fakeLocation = injectLocation((FakeLoc.lastLocation ?: Location("gps")).apply {
+                if (time <= 0L) time = System.currentTimeMillis()
+                if (elapsedRealtimeNanos <= 0L) elapsedRealtimeNanos = System.nanoTime()
+            }, false)
+
+            val fulfilled = kotlin.runCatching {
+                val onLocation = callback.javaClass.methods.firstOrNull {
+                    it.name == "onLocation" && it.parameterTypes.size == 1
+                } ?: return@runCatching false
+                onLocation.isAccessible = true
+                onLocation.invoke(callback, fakeLocation)
+                true
+            }.getOrDefault(false)
+
+            if (fulfilled || FakeLoc.disableGetCurrentLocation) {
                 result = null
                 return@beforeHook
             }
@@ -962,7 +1007,14 @@ internal object LocationServiceHook: BaseLocationHook() {
 //        }
 //    }
 
+    private fun ensurePullbackPushStarted() {
+        if (pullbackPushStarted) return
+        pullbackPushStarted = true
+        pullbackPushHandler.post(pullbackPushRunnable)
+    }
+
     private fun addLocationListenerInner(provider: String, listener: IInterface) {
+        val binder = listener.asBinder()
         val mDeathRecipient = object: IBinder.DeathRecipient {
             override fun binderDied() {}
             override fun binderDied(who: IBinder) {
@@ -970,9 +1022,16 @@ internal object LocationServiceHook: BaseLocationHook() {
                 removeLocationListenerByBinder(who)
             }
         }
-        listener.asBinder().linkToDeath(mDeathRecipient, 0)
-        locationListeners.add(provider to listener)
+        kotlin.runCatching { binder.linkToDeath(mDeathRecipient, 0) }
+        trimLocationListenersIfNeeded()
+        if (locationListeners.none { it.second.asBinder() == binder }) {
+            locationListeners.add(provider to listener)
+        }
         hookILocationListener(listener)
+        ensurePullbackPushStarted()
+        if (FakeLoc.enable) {
+            callOnLocationChanged()
+        }
     }
 
     private fun removeLocationListenerInner(listener: IInterface) {
@@ -981,6 +1040,12 @@ internal object LocationServiceHook: BaseLocationHook() {
 
     private fun removeLocationListenerByBinder(binder: IBinder) {
         locationListeners.removeIf { it.second.asBinder() == binder }
+    }
+
+    private fun trimLocationListenersIfNeeded() {
+        while (locationListeners.size >= MAX_TRACKED_LOCATION_LISTENERS) {
+            locationListeners.poll() ?: break
+        }
     }
 
     fun callOnLocationChanged() {
