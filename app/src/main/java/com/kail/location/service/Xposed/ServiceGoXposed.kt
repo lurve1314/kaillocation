@@ -65,6 +65,7 @@ class ServiceGoXposed : Service() {
         const val DEFAULT_BEA = ServiceConstants.DEFAULT_BEA
 
         private const val HANDLER_MSG_ID = 0
+        private const val DEFAULT_LOCATION_UPDATE_INTERVAL_MS = 200L
         private const val SERVICE_GO_HANDLER_NAME = "ServiceGoXposedLocation"
         private const val SERVICE_GO_NOTE_ID = 2
         const val SERVICE_GO_NOTE_ACTION_JOYSTICK_SHOW = ServiceNotificationHelper.ACTION_JOYSTICK_SHOW
@@ -187,8 +188,11 @@ class ServiceGoXposed : Service() {
                     CONTROL_PAUSE -> {
                         try {
                             isStop = true
-                            mJoystickManager.setRoutePauseState(true)
+                            if (this::mJoystickManager.isInitialized) {
+                                mJoystickManager.setRoutePauseState(true)
+                            }
                             broadcastStatus()
+                            KailLog.log(this, "ServiceGoXposed", "Paused simulation (isStop=true)", isHighFrequency = false)
                         } catch (e: Exception) {
                             KailLog.log(this, "ServiceGoXposed", "Pause error: ${e.message}", isHighFrequency = false)
                         }
@@ -197,7 +201,12 @@ class ServiceGoXposed : Service() {
                     CONTROL_RESUME -> {
                         try {
                             isStop = false
-                            mJoystickManager.setRoutePauseState(false)
+                            if (this::mJoystickManager.isInitialized) {
+                                mJoystickManager.setRoutePauseState(false)
+                            }
+                            if (locationLoopStarted && this::mLocHandler.isInitialized && !mLocHandler.hasMessages(HANDLER_MSG_ID)) {
+                                mLocHandler.sendEmptyMessage(HANDLER_MSG_ID)
+                            }
                             sendXposedCommand("set_step_enabled", Bundle().apply {
                                 putBoolean("enabled", stepEnabled)
                                 putInt("scheme", stepScheme)
@@ -206,6 +215,7 @@ class ServiceGoXposed : Service() {
                                 putBoolean("enabled", stepEnabled)
                             })
                             broadcastStatus()
+                            KailLog.log(this, "ServiceGoXposed", "Resumed simulation (isStop=false)", isHighFrequency = false)
                         } catch (e: Exception) {
                             KailLog.log(this, "ServiceGoXposed", "Resume error: ${e.message}", isHighFrequency = false)
                         }
@@ -356,14 +366,25 @@ class ServiceGoXposed : Service() {
         val prefs = PreferenceManager.getDefaultSharedPreferences(this)
         val configExtras = Bundle().apply {
             putBoolean("enableMockGnss", prefs.getBoolean("setting_gps_satellite_sim", true))
-            putBoolean("disableFusedLocation", prefs.getBoolean("setting_disable_fused", false))
-            putBoolean("hideMock", prefs.getBoolean("setting_hide_mock", false))
-            putBoolean("hookWifi", prefs.getBoolean("setting_disable_wifi_scan", false))
-            putBoolean("needDowngradeToCdma", prefs.getBoolean("setting_downgrade_cdma", false))
-            putBoolean("loopBroadcastLocation", prefs.getBoolean("setting_anti_pullback", false))
+            putBoolean("enableMockWifi", prefs.getBoolean("setting_enable_mock_wifi", false))
+            putBoolean("disableGetCurrentLocation", !prefs.getBoolean("setting_allow_get_current_location", true))
+            putBoolean("disableRegisterLocationListener", !prefs.getBoolean("setting_allow_register_listener", true))
+            putBoolean("disableFusedLocation", prefs.getBoolean("setting_disable_fused_location", true))
+            putBoolean("disableNetworkLocation", true)
+            putBoolean("disableRequestGeofence", !prefs.getBoolean("setting_allow_geofence", true))
+            putBoolean("disableGetFromLocation", !prefs.getBoolean("setting_allow_get_from_location", true))
+            putBoolean("enableAGPS", prefs.getBoolean("setting_enable_agps", false))
+            putBoolean("enableNMEA", prefs.getBoolean("setting_enable_nmea", false))
+            putBoolean("hideMock", prefs.getBoolean("setting_hide_mock", true))
+            putBoolean("hookWifi", prefs.getBoolean("setting_disable_wifi_scan", true))
+            putBoolean("needDowngradeToCdma", prefs.getBoolean("setting_downgrade_to_cdma", true))
+            putBoolean("loopBroadcastLocation", prefs.getBoolean("setting_loop_broadcast", false))
+            putBoolean("enableNaturalJitter", prefs.getBoolean("setting_natural_jitter", false))
             putInt("minSatellites", prefs.getString("setting_min_satellites", "12")?.toIntOrNull() ?: 12)
-            putFloat("accuracy", 25.0f)
-            putInt("reportIntervalMs", prefs.getString("setting_report_interval", "100")?.toIntOrNull() ?: 100)
+            putFloat("accuracy", prefs.getString("setting_accuracy", "2.5")?.toFloatOrNull() ?: 2.5f)
+            putInt("reportIntervalMs", prefs.getString("setting_report_interval", "200")?.toIntOrNull() ?: 200)
+            putBoolean("enableFileLog", prefs.getBoolean("setting_log_enabled", false))
+            putBoolean("enableDebugLog", prefs.getBoolean("setting_debug_log_enabled", false))
         }
         sendXposedCommand("set_config", configExtras)
 
@@ -578,8 +599,8 @@ class ServiceGoXposed : Service() {
             broadcastStatusStopped()
             isStop = true
             locationLoopStarted = false
-            if (this::mLocHandler.isInitialized) mLocHandler.removeMessages(HANDLER_MSG_ID)
-            if (this::mLocHandlerThread.isInitialized) mLocHandlerThread.quit()
+            if (this::mLocHandler.isInitialized) mLocHandler.removeCallbacksAndMessages(null)
+            if (this::mLocHandlerThread.isInitialized) mLocHandlerThread.quitSafely()
             if (this::mJoystickManager.isInitialized) mJoystickManager.destroy()
 
             // Stop route simulation first
@@ -647,12 +668,11 @@ class ServiceGoXposed : Service() {
     }
 
     private fun initGoLocation() {
-        mLocHandlerThread = HandlerThread(SERVICE_GO_HANDLER_NAME, Process.THREAD_PRIORITY_FOREGROUND)
+        mLocHandlerThread = HandlerThread(SERVICE_GO_HANDLER_NAME, Process.THREAD_PRIORITY_BACKGROUND)
         mLocHandlerThread.start()
         mLocHandler = object : Handler(mLocHandlerThread.looper) {
             override fun handleMessage(msg: Message) {
                 try {
-                    Thread.sleep(50)
                     if (!isStop) {
                         if (mRouteEngine.isActive) {
                             val speedForStep = if (speedFluctuation) {
@@ -660,30 +680,38 @@ class ServiceGoXposed : Service() {
                             } else {
                                 mSpeed
                             }
-                            mRouteEngine.advance(speedForStep * 0.185)
+                            val intervalMs = currentLocationUpdateIntervalMs()
+                            mRouteEngine.advance(speedForStep * (intervalMs / 1000.0))
                             mCurLng = mRouteEngine.currentLng
                             mCurLat = mRouteEngine.currentLat
                             mCurBea = mRouteEngine.currentBea
                             updateJoystickStatus()
                         }
 
-                        // Update Xposed module with new location
                         val locExtras = Bundle().apply {
                             putDouble("lat", mCurLat)
                             putDouble("lon", mCurLng)
                         }
                         sendXposedCommand("update_location", locExtras)
                     }
-                    sendEmptyMessage(HANDLER_MSG_ID)
+                    if (!isStop) {
+                        sendEmptyMessageDelayed(HANDLER_MSG_ID, currentLocationUpdateIntervalMs())
+                    }
                 } catch (e: InterruptedException) {
                     KailLog.e(this@ServiceGoXposed, "ServiceGoXposed", "handleMessage interrupted: ${e.message}")
                     Thread.currentThread().interrupt()
                 } catch (e: Exception) {
                     KailLog.e(this@ServiceGoXposed, "ServiceGoXposed", "handleMessage exception: ${e.message}")
-                    if (!isStop) sendEmptyMessageDelayed(HANDLER_MSG_ID, 100)
+                    if (!isStop) sendEmptyMessageDelayed(HANDLER_MSG_ID, currentLocationUpdateIntervalMs())
                 }
             }
         }
+    }
+
+    private fun currentLocationUpdateIntervalMs(): Long {
+        val prefs = PreferenceManager.getDefaultSharedPreferences(this)
+        return (prefs.getString("setting_report_interval", DEFAULT_LOCATION_UPDATE_INTERVAL_MS.toString())?.toLongOrNull()
+            ?: DEFAULT_LOCATION_UPDATE_INTERVAL_MS).coerceAtLeast(0L)
     }
 
     private fun startLocationLoop() {

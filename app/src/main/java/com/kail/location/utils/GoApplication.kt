@@ -5,16 +5,18 @@ import android.app.Application
 import android.content.Context
 import android.os.Bundle
 import androidx.preference.PreferenceManager
+import com.baidu.location.LocationClient
+import com.baidu.mapapi.CoordType
+import com.baidu.mapapi.SDKInitializer
+import com.google.firebase.FirebaseApp
+import com.kail.location.R
+import com.kail.location.auth.AuthManager
+import com.kail.location.auth.UsageManager
+import com.kail.location.sandbox.SandboxManager
+import com.kail.location.sandbox.SandboxSettingsManager
 import java.io.File
 import top.niunaijun.blackbox.BlackBoxCore
 import top.niunaijun.blackbox.app.configuration.ClientConfiguration
-import com.kail.location.sandbox.SandboxManager
-import com.kail.location.sandbox.SandboxSettingsManager
-import com.kail.location.auth.AuthManager
-import com.kail.location.auth.UsageManager
-import com.baidu.mapapi.SDKInitializer
-import com.baidu.location.LocationClient
-import com.baidu.mapapi.CoordType
 
 class GoApplication : Application(), Application.ActivityLifecycleCallbacks {
 
@@ -100,6 +102,9 @@ class GoApplication : Application(), Application.ActivityLifecycleCallbacks {
         if (!isMainProc) {
             return
         }
+
+        PreferenceManager.setDefaultValues(this, R.xml.preferences_main, false)
+        FirebaseApp.initializeApp(this)
 
         AuthManager.init(this)
         UsageManager.init(this)

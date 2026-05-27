@@ -17,7 +17,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.kail.location.R
-import com.kail.location.auth.AuthManager
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -71,6 +70,13 @@ fun AppDrawer(
     fun openXposedDownloadPage() {
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/noellegazelle6/kail_location/releases"))
         context.startActivity(intent)
+    }
+
+    suspend fun closeDrawerSmooth() {
+        drawerState.animateTo(
+            DrawerValue.Closed,
+            androidx.compose.animation.core.tween(durationMillis = 140)
+        )
     }
 
     if (showRunModeDialog) {
@@ -160,7 +166,7 @@ fun AppDrawer(
             }
         )
     }
-    
+
     if (showEnvDialog) {
         AlertDialog(
             onDismissRequest = { showEnvDialog = false },
@@ -213,7 +219,7 @@ fun AppDrawer(
                     label = { Text(stringResource(R.string.nav_menu_location_simulation)) },
                     icon = { Icon(painterResource(R.drawable.ic_position), contentDescription = null) },
                     selected = currentScreen == "LocationSimulation",
-                    onClick = { scope.launch { drawerState.close(); onNavigate(R.id.nav_location_simulation) } }
+                    onClick = { scope.launch { closeDrawerSmooth(); onNavigate(R.id.nav_location_simulation) } }
                 )
             }
             item {
@@ -221,7 +227,7 @@ fun AppDrawer(
                     label = { Text(stringResource(R.string.nav_menu_route_simulation)) },
                     icon = { Icon(painterResource(R.drawable.ic_move), contentDescription = null) },
                     selected = currentScreen == "RouteSimulation",
-                    onClick = { scope.launch { drawerState.close(); onNavigate(R.id.nav_route_simulation) } }
+                    onClick = { scope.launch { closeDrawerSmooth(); onNavigate(R.id.nav_route_simulation) } }
                 )
             }
             item {
@@ -229,7 +235,7 @@ fun AppDrawer(
                     label = { Text(stringResource(R.string.drawer_nav_sim)) },
                     icon = { Icon(Icons.Default.Search, contentDescription = null) },
                     selected = currentScreen == "NavigationSimulation",
-                    onClick = { scope.launch { drawerState.close(); onNavigate(R.id.nav_navigation_simulation) } }
+                    onClick = { scope.launch { closeDrawerSmooth(); onNavigate(R.id.nav_navigation_simulation) } }
                 )
             }
             item {
@@ -237,7 +243,7 @@ fun AppDrawer(
                     label = { Text(stringResource(R.string.drawer_nfc_sim)) },
                     icon = { Icon(Icons.Default.Settings, contentDescription = null) },
                     selected = currentScreen == "NfcSimulation",
-                    onClick = { scope.launch { drawerState.close(); onNavigate(R.id.nav_nfc_simulation) } }
+                    onClick = { scope.launch { closeDrawerSmooth(); onNavigate(R.id.nav_nfc_simulation) } }
                 )
             }
             if (runMode == "root") {
@@ -246,7 +252,7 @@ fun AppDrawer(
                         label = { Text(stringResource(R.string.nav_menu_independent_sim)) },
                         icon = { Icon(painterResource(R.drawable.ic_position), contentDescription = null) },
                         selected = currentScreen == "IndependentSimulation",
-                        onClick = { scope.launch { drawerState.close(); onNavigate(R.id.nav_independent_simulation) } }
+                        onClick = { scope.launch { closeDrawerSmooth(); onNavigate(R.id.nav_independent_simulation) } }
                     )
                 }
                 item {
@@ -254,7 +260,7 @@ fun AppDrawer(
                         label = { Text(stringResource(R.string.nav_menu_wifi_sim)) },
                         icon = { Icon(painterResource(R.drawable.ic_menu_settings), contentDescription = null) },
                         selected = currentScreen == "WifiSimulation",
-                        onClick = { scope.launch { drawerState.close(); onNavigate(R.id.nav_wifi_simulation) } }
+                        onClick = { scope.launch { closeDrawerSmooth(); onNavigate(R.id.nav_wifi_simulation) } }
                     )
                 }
                 item {
@@ -262,7 +268,7 @@ fun AppDrawer(
                         label = { Text(stringResource(R.string.nav_menu_cell_sim)) },
                         icon = { Icon(painterResource(R.drawable.ic_menu_dev), contentDescription = null) },
                         selected = currentScreen == "CellSimulation",
-                        onClick = { scope.launch { drawerState.close(); onNavigate(R.id.nav_cell_simulation) } }
+                        onClick = { scope.launch { closeDrawerSmooth(); onNavigate(R.id.nav_cell_simulation) } }
                     )
                 }
             }
@@ -272,7 +278,7 @@ fun AppDrawer(
                         label = { Text(stringResource(R.string.drawer_sandbox)) },
                         icon = { Icon(Icons.Default.Settings, contentDescription = null) },
                         selected = currentScreen == "Sandbox",
-                        onClick = { scope.launch { drawerState.close(); onNavigate(R.id.nav_sandbox) } }
+                        onClick = { scope.launch { closeDrawerSmooth(); onNavigate(R.id.nav_sandbox) } }
                     )
                 }
             }
@@ -282,7 +288,7 @@ fun AppDrawer(
                         label = { Text(stringResource(R.string.drawer_xposed_settings)) },
                         icon = { Icon(Icons.Default.Settings, contentDescription = null) },
                         selected = false,
-                        onClick = { scope.launch { drawerState.close(); onXposedSettingsSelected() } }
+                        onClick = { scope.launch { closeDrawerSmooth(); onXposedSettingsSelected() } }
                     )
                 }
             }
@@ -302,7 +308,7 @@ fun AppDrawer(
                     label = { Text(stringResource(R.string.nav_menu_settings)) },
                     icon = { Icon(painterResource(R.drawable.ic_menu_settings), contentDescription = null) },
                     selected = false,
-                    onClick = { scope.launch { drawerState.close(); onNavigate(R.id.nav_settings) } }
+                    onClick = { scope.launch { closeDrawerSmooth(); onNavigate(R.id.nav_settings) } }
                 )
             }
             item {
@@ -310,7 +316,7 @@ fun AppDrawer(
                     label = { Text(stringResource(R.string.drawer_run_mode)) },
                     icon = { Icon(painterResource(R.drawable.ic_menu_dev), contentDescription = null) },
                     selected = false,
-                    onClick = { scope.launch { drawerState.close(); showRunModeDialog = true } }
+                    onClick = { scope.launch { closeDrawerSmooth(); showRunModeDialog = true } }
                 )
             }
 
@@ -329,7 +335,7 @@ fun AppDrawer(
                     label = { Text(stringResource(R.string.nav_menu_contact)) },
                     icon = { Icon(painterResource(R.drawable.ic_contact), contentDescription = null) },
                     selected = false,
-                    onClick = { scope.launch { drawerState.close(); onNavigate(R.id.nav_contact) } }
+                    onClick = { scope.launch { closeDrawerSmooth(); onNavigate(R.id.nav_contact) } }
                 )
             }
             item {
@@ -337,7 +343,7 @@ fun AppDrawer(
                     label = { Text(stringResource(R.string.nav_menu_sponsor)) },
                     icon = { Icon(painterResource(R.drawable.ic_user), contentDescription = null) },
                     selected = false,
-                    onClick = { scope.launch { drawerState.close(); onNavigate(R.id.nav_sponsor) } }
+                    onClick = { scope.launch { closeDrawerSmooth(); onNavigate(R.id.nav_sponsor) } }
                 )
             }
             item {
@@ -345,7 +351,7 @@ fun AppDrawer(
                     label = { Text(stringResource(R.string.nav_menu_github)) },
                     icon = { Icon(painterResource(R.drawable.ic_menu_dev), contentDescription = null) },
                     selected = false,
-                    onClick = { scope.launch { drawerState.close(); onNavigate(R.id.nav_source_code) } }
+                    onClick = { scope.launch { closeDrawerSmooth(); onNavigate(R.id.nav_source_code) } }
                 )
             }
         }
