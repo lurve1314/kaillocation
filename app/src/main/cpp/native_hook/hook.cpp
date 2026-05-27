@@ -501,6 +501,108 @@ Java_com_kail_locationxposed_xposed_sensor_NativeSensorHook_nativeInit(
     jint scheme,
     jboolean enable
 ) {
+    Java_com_kail_location_root_NativeSensorHook_nativeSetGaitParams(env, clazz, spm, mode, scheme, enable);
+    Java_com_kail_location_root_NativeSensorHook_nativeInitHook(env, clazz);
+}
+
+// ============================================================
+// Main app Xposed package JNI functions (com.kail.location.xposed.sensor.NativeSensorHook)
+// ============================================================
+
+JNIEXPORT void JNICALL
+Java_com_kail_location_xposed_sensor_NativeSensorHook_nativeSetWriteOffset(
+    JNIEnv* env,
+    jclass clazz,
+    jlong offset
+) {
+    Java_com_kail_location_root_NativeSensorHook_nativeSetWriteOffset(env, clazz, offset);
+}
+
+JNIEXPORT void JNICALL
+Java_com_kail_location_xposed_sensor_NativeSensorHook_nativeSetConvertOffset(
+    JNIEnv* env,
+    jclass clazz,
+    jlong offset
+) {
+    Java_com_kail_location_root_NativeSensorHook_nativeSetConvertOffset(env, clazz, offset);
+}
+
+JNIEXPORT void JNICALL
+Java_com_kail_location_xposed_sensor_NativeSensorHook_nativeSetRouteSimulation(
+    JNIEnv* env,
+    jclass clazz,
+    jboolean active,
+    jfloat spm,
+    jint mode
+) {
+    Java_com_kail_location_root_NativeSensorHook_nativeSetRouteSimulation(env, clazz, active, spm, mode);
+}
+
+JNIEXPORT void JNICALL
+Java_com_kail_location_xposed_sensor_NativeSensorHook_nativeSetGaitParams(
+    JNIEnv* env,
+    jclass clazz,
+    jfloat spm,
+    jint mode,
+    jint scheme,
+    jboolean enable
+) {
+    Java_com_kail_location_root_NativeSensorHook_nativeSetGaitParams(env, clazz, spm, mode, scheme, enable);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_kail_location_xposed_sensor_NativeSensorHook_nativeReloadConfig(
+    JNIEnv* env,
+    jclass clazz
+) {
+    return Java_com_kail_location_root_NativeSensorHook_nativeReloadConfig(env, clazz);
+}
+
+JNIEXPORT void JNICALL
+Java_com_kail_location_xposed_sensor_NativeSensorHook_nativeSetMocking(
+    JNIEnv* env,
+    jclass clazz,
+    jint mocking
+) {
+    Java_com_kail_location_root_NativeSensorHook_nativeSetMocking(env, clazz, mocking);
+}
+
+JNIEXPORT void JNICALL
+Java_com_kail_location_xposed_sensor_NativeSensorHook_nativeSetAuthorized(
+    JNIEnv* env,
+    jclass clazz,
+    jint authorized
+) {
+    Java_com_kail_location_root_NativeSensorHook_nativeSetAuthorized(env, clazz, authorized);
+}
+
+JNIEXPORT void JNICALL
+Java_com_kail_location_xposed_sensor_NativeSensorHook_nativeSetStepSimEnabled(
+    JNIEnv* env,
+    jclass clazz,
+    jboolean enabled
+) {
+    Java_com_kail_location_root_NativeSensorHook_nativeSetStepSimEnabled(env, clazz, enabled);
+}
+
+JNIEXPORT void JNICALL
+Java_com_kail_location_xposed_sensor_NativeSensorHook_nativeReset(
+    JNIEnv* env,
+    jclass clazz
+) {
+    Java_com_kail_location_root_NativeSensorHook_nativeReset(env, clazz);
+}
+
+JNIEXPORT void JNICALL
+Java_com_kail_location_xposed_sensor_NativeSensorHook_nativeInit(
+    JNIEnv* env,
+    jclass clazz,
+    jfloat spm,
+    jint mode,
+    jint scheme,
+    jboolean enable
+) {
+    Java_com_kail_location_root_NativeSensorHook_nativeSetGaitParams(env, clazz, spm, mode, scheme, enable);
     Java_com_kail_location_root_NativeSensorHook_nativeInitHook(env, clazz);
 }
 
@@ -601,6 +703,7 @@ Java_com_kail_location_xposed_core_FakeLocState_nativeInit(
     jint scheme,
     jboolean enable
 ) {
+    Java_com_kail_location_root_NativeSensorHook_nativeSetGaitParams(env, clazz, spm, mode, scheme, enable);
     Java_com_kail_location_root_NativeSensorHook_nativeInitHook(env, clazz);
 }
 
@@ -701,6 +804,7 @@ Java_com_kail_locationxposed_xposed_core_FakeLocState_nativeInit(
     jint scheme,
     jboolean enable
 ) {
+    Java_com_kail_location_root_NativeSensorHook_nativeSetGaitParams(env, clazz, spm, mode, scheme, enable);
     Java_com_kail_location_root_NativeSensorHook_nativeInitHook(env, clazz);
 }
 

@@ -1,38 +1,38 @@
-*.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
-local.properties
+# Gradle / Android build outputs
+.gradle/
+build/
+**/build/
+.externalNativeBuild/
+**/.externalNativeBuild/
+.cxx/
+**/.cxx/
+captures/
+app/release/
+*.apk
+*.aab
+*.ap_
 
-# IDE error logs
-.kotlin/
-*.log
+# Local config
+local.properties
+/local.properties
 
 # IDE files
 .idea/
+.vscode/
 .vs/
 *.iml
-# Release output
-/app/release/
-# Build outputs
-app/build/
-app/.cxx/
-app/.externalNativeBuild/
+.kotlin/
 
-CLAUDE.md
-docs/
+# Logs and OS files
+*.log
+.DS_Store
+
 # Keystore
 *.jks
 *.keystore
+
+CLAUDE.md
+docs/
+
 # Added by code-review-graph
 .code-review-graph/
