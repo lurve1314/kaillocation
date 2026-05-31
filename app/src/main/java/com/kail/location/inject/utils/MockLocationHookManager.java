@@ -1578,71 +1578,133 @@ public class MockLocationHookManager {
      * the synthetic constellation data into the new object, every
      * `onSvStatusChanged` callback we let through to the listener carries
      * the *real* satellites and Mock GNSS does nothing on screen.
+     *
+     * The constellation is GPS + BeiDou only. The *set* of satellites stays
+     * stable across calls (so the sky view doesn't flicker / re-shuffle),
+     * while each satellite's C/N0 drifts a little每次 so the bars look alive
+     * like a real receiver tracking. The set is reshuffled occasionally to
+     * mimic satellites rising/setting.
      */
-    static GnssStatus buildSyntheticGnssStatus() {
-        GnssStatus.Builder b = new GnssStatus.Builder();
-        SecureRandom rnd = new SecureRandom();
+    // Stable synthetic constellation state.
+    private static final Object gnssSynLock = new Object();
+    private static int[] gnssSynConstellation;   // 1=GPS, 5=BeiDou
+    private static int[] gnssSynSvid;
+    private static float[] gnssSynCarrier;
+    private static float[] gnssSynBaseCn0;        // baseline C/N0 each sat tracks around
+    private static float[] gnssSynElev;
+    private static float[] gnssSynAz;
+    private static boolean[] gnssSynUsedInFix;
+    private static long gnssSynLastReshuffle = 0;
 
-        // GnssStatus constellation type constants (android.location.GnssStatus):
-        //   CONSTELLATION_GPS    = 1
-        //   CONSTELLATION_BEIDOU = 5
-        final int CONSTELLATION_GPS = 1;
-        final int CONSTELLATION_BEIDOU = 5;
-        // Carrier frequencies (Hz): GPS L1 C/A and BeiDou B1I.
+    private static void ensureGnssConstellation(SecureRandom rnd) {
+        long now = System.currentTimeMillis();
+        // (Re)build the constellation on first use and roughly every 90s to
+        // emulate satellites rising and setting.
+        if (gnssSynSvid != null && (now - gnssSynLastReshuffle) < 90000L) {
+            return;
+        }
+        gnssSynLastReshuffle = now;
+
+        int gpsCount = 8 + rnd.nextInt(5);   // 8..12 GPS
+        int bdsCount = 9 + rnd.nextInt(6);   // 9..14 BeiDou
+        int total = gpsCount + bdsCount;
+
+        int[] cons = new int[total];
+        int[] svid = new int[total];
+        float[] carrier = new float[total];
+        float[] baseCn0 = new float[total];
+        float[] elev = new float[total];
+        float[] az = new float[total];
+        boolean[] used = new boolean[total];
+
         final float GPS_L1 = 1.57542e9f;
         final float BDS_B1I = 1.561098e9f;
 
-        // Vary the visible satellite count each event so the sky view looks
-        // alive: 8-14 GPS + 8-14 BeiDou.
-        int gpsCount = 8 + rnd.nextInt(7);   // 8..14
-        int bdsCount = 8 + rnd.nextInt(7);   // 8..14
-
-        // Track which svids we've already emitted per constellation so we
-        // don't duplicate a satellite within one snapshot.
         java.util.HashSet<Integer> usedGps = new java.util.HashSet<>();
         java.util.HashSet<Integer> usedBds = new java.util.HashSet<>();
-
-        // GPS svids are 1..32.
-        for (int i = 0; i < gpsCount; i++) {
-            int svid;
-            int guard = 0;
-            do { svid = 1 + rnd.nextInt(32); } while (!usedGps.add(svid) && ++guard < 64);
-            addSyntheticSatellite(b, rnd, CONSTELLATION_GPS, svid, GPS_L1, i < gpsCount - 2);
+        int idx = 0;
+        for (int i = 0; i < gpsCount; i++, idx++) {
+            int s; int guard = 0;
+            do { s = 1 + rnd.nextInt(32); } while (!usedGps.add(s) && ++guard < 64);
+            cons[idx] = 1; svid[idx] = s; carrier[idx] = GPS_L1;
+            baseCn0[idx] = 22f + rnd.nextFloat() * 20f;          // 22..42
+            elev[idx] = 5f + rnd.nextFloat() * 80f;
+            az[idx] = rnd.nextFloat() * 360f;
+            used[idx] = i < gpsCount - 2;
         }
-        // BeiDou svids are 1..63.
-        for (int i = 0; i < bdsCount; i++) {
-            int svid;
-            int guard = 0;
-            do { svid = 1 + rnd.nextInt(63); } while (!usedBds.add(svid) && ++guard < 128);
-            addSyntheticSatellite(b, rnd, CONSTELLATION_BEIDOU, svid, BDS_B1I, i < bdsCount - 2);
+        for (int i = 0; i < bdsCount; i++, idx++) {
+            int s; int guard = 0;
+            do { s = 1 + rnd.nextInt(63); } while (!usedBds.add(s) && ++guard < 128);
+            cons[idx] = 5; svid[idx] = s; carrier[idx] = BDS_B1I;
+            baseCn0[idx] = 22f + rnd.nextFloat() * 20f;
+            elev[idx] = 5f + rnd.nextFloat() * 80f;
+            az[idx] = rnd.nextFloat() * 360f;
+            used[idx] = i < bdsCount - 2;
+        }
+
+        gnssSynConstellation = cons;
+        gnssSynSvid = svid;
+        gnssSynCarrier = carrier;
+        gnssSynBaseCn0 = baseCn0;
+        gnssSynElev = elev;
+        gnssSynAz = az;
+        gnssSynUsedInFix = used;
+    }
+
+    static GnssStatus buildSyntheticGnssStatus() {
+        SecureRandom rnd = new SecureRandom();
+        GnssStatus.Builder b = new GnssStatus.Builder();
+        synchronized (gnssSynLock) {
+            ensureGnssConstellation(rnd);
+            int n = gnssSynSvid.length;
+            for (int i = 0; i < n; i++) {
+                // Drift C/N0 ±3 dB around the baseline each emission so the
+                // signal bars wobble like a real tracking receiver, clamped
+                // to a sane 8..48 range.
+                float cn0 = gnssSynBaseCn0[i] + (rnd.nextFloat() * 6f - 3f);
+                if (cn0 < 8f) cn0 = 8f;
+                if (cn0 > 48f) cn0 = 48f;
+                // Slowly nudge the baseline too (random walk) so signals
+                // trend over time.
+                gnssSynBaseCn0[i] += (rnd.nextFloat() * 1.0f - 0.5f);
+                if (gnssSynBaseCn0[i] < 18f) gnssSynBaseCn0[i] = 18f;
+                if (gnssSynBaseCn0[i] > 44f) gnssSynBaseCn0[i] = 44f;
+                // Tiny elevation drift.
+                float elev = gnssSynElev[i] + (rnd.nextFloat() * 1.0f - 0.5f);
+                if (elev < 5f) elev = 5f;
+                if (elev > 89f) elev = 89f;
+                gnssSynElev[i] = elev;
+                float az = gnssSynAz[i] + (rnd.nextFloat() * 1.0f - 0.5f);
+                if (az < 0f) az += 360f;
+                if (az >= 360f) az -= 360f;
+                gnssSynAz[i] = az;
+                float baseband = Math.max(0f, cn0 - (1f + rnd.nextFloat() * 2f));
+                b.addSatellite(gnssSynConstellation[i], gnssSynSvid[i], cn0, elev, az,
+                        /*hasEphemeris=*/true,
+                        /*hasAlmanac=*/true,
+                        /*usedInFix=*/gnssSynUsedInFix[i],
+                        /*hasCarrierFrequency=*/true,
+                        gnssSynCarrier[i],
+                        /*hasBasebandCn0DbHz=*/true,
+                        baseband);
+            }
         }
         return b.build();
     }
 
     /**
-     * Append one satellite with randomised, physically-plausible parameters
-     * so consecutive GnssStatus snapshots show the signal strengths,
-     * elevations and azimuths drifting like a real sky view.
+     * Append one satellite with randomised, physically-plausible parameters.
+     * (Retained for the legacy multi-arg path.)
      */
     private static void addSyntheticSatellite(GnssStatus.Builder b, SecureRandom rnd,
                                               int constellation, int svid,
                                               float carrierFreq, boolean usedInFix) {
-        // C/N0 12..45 dB-Hz, fluctuating every call.
         float cn0 = 12f + rnd.nextFloat() * 33f;
-        // Elevation 5..85 degrees.
         float elev = 5f + rnd.nextFloat() * 80f;
-        // Azimuth 0..360 degrees.
         float az = rnd.nextFloat() * 360f;
-        // Baseband C/N0 a couple dB below the antenna C/N0.
         float baseband = Math.max(0f, cn0 - (1f + rnd.nextFloat() * 3f));
         b.addSatellite(constellation, svid, cn0, elev, az,
-                /*hasEphemeris=*/true,
-                /*hasAlmanac=*/true,
-                /*usedInFix=*/usedInFix,
-                /*hasCarrierFrequency=*/true,
-                carrierFreq,
-                /*hasBasebandCn0DbHz=*/true,
-                baseband);
+                true, true, usedInFix, true, carrierFreq, true, baseband);
     }
 
     /**
@@ -1671,49 +1733,15 @@ public class MockLocationHookManager {
             Object[] argsIn) {
         Object[] args = argsIn;
         String name = method == null ? null : method.getName();
-        if ("onSvStatusChanged".equals(name) && args != null
+        // While mocking is active we drive GNSS SV-status purely from the
+        // callGpsStatusChanged() heartbeat (which calls the *original*
+        // listener directly). Any real onSvStatusChanged the framework tries
+        // to deliver through this proxy is swallowed, so the app never sees
+        // the real (indoors: empty / 0-Cn0) constellation interleaved with
+        // our synthetic one.
+        if ("onSvStatusChanged".equals(name)
                 && mockGpsStatusEnabled && isMocking() && isAllowMockPackage(packageName, "f")) {
-            // Android 12+ signature: void onSvStatusChanged(GnssStatus status)
-            // Older legacy signatures take parallel arrays. Substitute mock
-            // data appropriate to the signature actually being invoked.
-            if (args.length == 1 && args[0] != null && args[0] instanceof GnssStatus) {
-                args = new Object[]{buildSyntheticGnssStatus()};
-            } else {
-                int[] svidsForStatus = getRandomLength(gnssSvidsForStatus, 64);
-                float[] cn0ForStatus = getRandomLength(gnssCn0DbHzForStatus, 64);
-                float[] elevForStatus = getRandomLength(gnssElevationsForStatus, 64);
-                float[] azimForStatus = getRandomLength(gnssAzimuthsForStatus, 64);
-                int visibleCount = Math.max(10, new SecureRandom().nextInt(maxVisibleGnssSatellites));
-                int[] svids = getRandomLength(gnssSvids, visibleCount);
-                float[] carrierFreq = gnssCarrierFrequencies != null
-                        ? getRandomLength(gnssCarrierFrequencies, visibleCount)
-                        : new float[visibleCount];
-                if (gnssCarrierFrequencies == null) {
-                    java.util.Arrays.fill(carrierFreq, 1.57542E9f);
-                }
-                float[] cn0 = getRandomLength(gnssCn0DbHz, visibleCount);
-                float[] elev = getRandomLength(gnssElevations, visibleCount);
-                float[] azim = getRandomLength(gnssAzimuths, visibleCount);
-                if (args.length == 5) {
-                    args = new Object[]{64, svidsForStatus, cn0ForStatus, elevForStatus, azimForStatus};
-                } else if (args.length == 6) {
-                    args = new Object[]{Integer.valueOf(visibleCount), svids, carrierFreq, cn0, elev, azim};
-                } else if (args.length >= 7) {
-                    args[0] = Integer.valueOf(visibleCount);
-                    args[1] = svids;
-                    args[2] = carrierFreq;
-                    args[3] = cn0;
-                    args[4] = elev;
-                    args[5] = azim;
-                    args[6] = carrierFreq;
-                }
-            }
-            try {
-                ReflectionUtils.invokeMethod(originalListener, iGnssStatusListenerClass,
-                        "onFirstFix", new Class[]{Integer.TYPE},
-                        new Object[]{Integer.valueOf(firstFixMillis)});
-            } catch (Throwable ignored) {
-            }
+            return null;
         }
         if ("onNmeaReceived".equals(name) && isMocking() && isAllowMockPackage(packageName, "f")) {
             return null;
@@ -1746,6 +1774,57 @@ public class MockLocationHookManager {
      * location.
      */
     public static void callGpsStatusChanged() {
+        if (!isMocking() || !mockGpsStatusEnabled) {
+            return;
+        }
+        // Single authoritative GNSS heartbeat: push one stable synthetic
+        // GnssStatus snapshot (GPS + BeiDou, signal strengths drifting via
+        // buildSyntheticGnssStatus's internal state) to every registered
+        // listener. The interception proxy swallows the real framework
+        // onSvStatusChanged callbacks while mocking, so this is the only
+        // stream the app sees — no more flicker between our data and the
+        // real (indoors: empty) constellation.
+        GnssStatus synthetic = null;
+        try {
+            synchronized (gnssStatusListenerPackages) {
+                for (Object listener : new ArrayList<>(gnssStatusListenerPackages.keySet())) {
+                    String pkg = gnssStatusListenerPackages.get(listener);
+                    if (pkg == null || !isAllowMockPackage(pkg, "f")) {
+                        continue;
+                    }
+                    Object proxyOrTarget = getProxyListener(listener);
+                    if (proxyOrTarget == null) proxyOrTarget = listener;
+                    // Deliver straight to the ORIGINAL app listener, not via
+                    // our interception proxy: the proxy swallows real
+                    // onSvStatusChanged while mocking, and we don't want it to
+                    // swallow our own heartbeat too.
+                    Object target = listener;
+                    if (synthetic == null) synthetic = buildSyntheticGnssStatus();
+                    boolean delivered = false;
+                    try {
+                        ReflectionUtils.invokeMethod(target, iGnssStatusListenerClass,
+                                "onSvStatusChanged", new Class[]{GnssStatus.class},
+                                new Object[]{synthetic});
+                        delivered = true;
+                    } catch (Throwable ignored) {
+                    }
+                    if (delivered) {
+                        try {
+                            ReflectionUtils.invokeMethod(target, iGnssStatusListenerClass,
+                                    "onFirstFix", new Class[]{Integer.TYPE},
+                                    new Object[]{Integer.valueOf(firstFixMillis)});
+                        } catch (Throwable ignored) {
+                        }
+                    }
+                }
+            }
+        } catch (Throwable th) {
+            th.printStackTrace();
+        }
+    }
+
+    /** Legacy body retained for reference; no longer invoked. */
+    private static void callGpsStatusChangedLegacy() {
         if (!isMocking() || !mockGpsStatusEnabled) {
             return;
         }
