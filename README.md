@@ -34,25 +34,17 @@
 
 ## 下载
 
-[前往 Google Play 下载](https://play.google.com/store/apps/details?id=com.kail.location)
+[app下载](https://github.com/noellegazelle6/kail_location/releases)
 
 ---
 
 ## 文档导航
 
-- [传感器参数](传感器参数.md)
 - [中文说明](README.md)
 - [English README](README_EN.md)
 
 ---
 
-## 日志位置
-
-```text
-/storage/emulated/0/Documents/KailLocation/logs/
-```
-
----
 
 ## 技术栈
 
@@ -92,7 +84,7 @@
 
 ## 联系作者
 
-- Telegram: https://t.me/kaillcation
+- Telegram: https://t.me/kaillocation
 - Email: kailkali23143@gmail.com
 
 ---

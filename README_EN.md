@@ -34,25 +34,18 @@
 
 ## Download
 
-[Go to Google Play](https://play.google.com/store/apps/details?id=com.kail.location)
+[app](https://github.com/noellegazelle6/kail_location/releases)
 
 ---
 
 ## Documentation
 
-- [Sensor Parameters](传感器参数.md)
+
 - [中文说明](README.md)
 - [English README](README_EN.md)
 
 ---
 
-## Log Location
-
-```text
-/storage/emulated/0/Documents/KailLocation/logs/
-```
-
----
 
 ## Tech Stack
 
@@ -92,7 +85,7 @@ Feature requests and feedback are welcome via issues.
 
 ## Contact
 
-- Telegram: https://t.me/kaillcation
+- Telegram: https://t.me/kaillocation
 - Email: kailkali23143@gmail.com
 
 ---
