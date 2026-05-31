@@ -126,6 +126,23 @@ class WifiSimulationViewModel(application: Application) : AndroidViewModel(appli
         writeWifiConfigToFile(value)
         if (value) {
             startServiceGoRootWifiMode()
+        } else {
+            stopServiceGoRootWifiMode()
+        }
+    }
+
+    private fun stopServiceGoRootWifiMode() {
+        try {
+            val ctx = getApplication<Application>().applicationContext
+            val intent = android.content.Intent(ctx, com.kail.location.service.Root.ServiceGoRoot::class.java).apply {
+                putExtra(
+                    com.kail.location.service.Root.ServiceGoRoot.EXTRA_CONTROL_ACTION,
+                    com.kail.location.service.Root.ServiceGoRoot.CONTROL_STOP_WIFI
+                )
+            }
+            ctx.startService(intent)
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 

@@ -103,6 +103,35 @@ object RootDeployer {
     }
 
     /**
+     * Inject the FakeLocation app-hook loader into an arbitrary running
+     * process by name. Used to bring the cell-tower pull APIs
+     * (TelephonyManager.getAllCellInfo / getCellLocation, served by
+     * com.android.phone's PhoneInterfaceManager) under
+     * [com.kail.location.inject.fakelocation.hook.phone.PhoneInterfaceManagerHook].
+     *
+     * The system_server inject (registering the service_mock_* binders) is a
+     * prerequisite — the app-hook InjectDex.hookApplication path reads mock
+     * state through those binders. Safe to call repeatedly; injecting an
+     * already-hooked process just re-runs hookApplication which no-ops the
+     * already-installed hooks.
+     */
+    fun injectAppProcess(processName: String): Boolean {
+        if (!ShellUtils.hasRoot()) return false
+        val injector = File(STAGING_DIR, INJECTOR_BIN)
+        // libfakeloc_apphook.so -> InjectDex.hookApplication (installs the
+        // per-process hooks, including PhoneInterfaceManagerHook for phone).
+        val appLoader = File(FAKELOC_DIR, "libfakeloc_apphook.so")
+        if (!injector.exists() || !appLoader.exists()) {
+            KailLog.e(null, TAG, "injectAppProcess: injector or apphook loader missing")
+            return false
+        }
+        val cmd = "${injector.absolutePath} -P $processName -l ${appLoader.absolutePath} -n com.kail.location"
+        val out = ShellUtils.executeCommand(cmd)
+        KailLog.i(null, TAG, "kail_inject ($processName) -> $out")
+        return out.contains("Inject ok")
+    }
+
+    /**
      * Side-effect free check for whether the ptrace-injection prerequisites
      * have already been staged on disk.
      */

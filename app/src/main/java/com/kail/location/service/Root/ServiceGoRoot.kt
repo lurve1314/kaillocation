@@ -174,6 +174,8 @@ class ServiceGoRoot : Service() {
         const val CONTROL_SET_SPEED = ServiceConstants.CONTROL_SET_SPEED
         const val CONTROL_SET_SPEED_FLUCTUATION = ServiceConstants.CONTROL_SET_SPEED_FLUCTUATION
         const val CONTROL_SET_STEP = "set_step"
+        const val CONTROL_STOP_WIFI = "stop_wifi"
+        const val CONTROL_STOP_CELL = "stop_cell"
 
         const val COORD_WGS84 = ServiceConstants.COORD_WGS84
         const val COORD_BD09 = ServiceConstants.COORD_BD09
@@ -372,6 +374,33 @@ class ServiceGoRoot : Service() {
                 broadcastStatus()
             }.onFailure { KailLog.e(this, TAG, "stop: ${it.message}") }
 
+            CONTROL_STOP_WIFI -> runCatching {
+                // Stop only WiFi spoofing; leave any location/cell session intact.
+                stopWifiMockOnInjection()
+                modeWifiOnly = false
+                pendingWifiList = emptyList()
+                KailLog.i(this, TAG, "WiFi mock stopped via control")
+                if (!isAnyMockActive()) stopSelf()
+            }.onFailure { KailLog.e(this, TAG, "stop_wifi: ${it.message}") }
+
+            CONTROL_STOP_CELL -> runCatching {
+                // Stop only cell spoofing. Clear the mock cells and the scoped
+                // block-list, and turn the master mock switch back off (it was
+                // only on to arm the telephony hook).
+                runCatching {
+                    resolveMockLocService()?.let {
+                        it.setMockCells(null)
+                        it.setSafeApps(null)
+                        it.stopMockLocation()
+                        it.setMockGpsStatus(false)
+                    }
+                }
+                modeCellOnly = false
+                pendingCellList = emptyList()
+                KailLog.i(this, TAG, "Cell mock stopped via control")
+                if (!isAnyMockActive()) stopSelf()
+            }.onFailure { KailLog.e(this, TAG, "stop_cell: ${it.message}") }
+
             CONTROL_SEEK -> {
                 val ratio = intent.getFloatExtra(EXTRA_SEEK_RATIO, 0f).coerceIn(0f, 1f)
                 mRouteEngine.seekToRatio(ratio)
@@ -541,6 +570,8 @@ class ServiceGoRoot : Service() {
                 resolveMockLocService()?.let {
                     it.stopMockLocation()
                     it.setMockGpsStatus(false)
+                    it.setMockCells(null)
+                    it.setSafeApps(null)
                 }
             }
             applyWifiMockOnInjection()
@@ -563,6 +594,10 @@ class ServiceGoRoot : Service() {
         val svc = resolveMockLocService()
         if (svc != null) {
             runCatching {
+                // Clear any scoped block-list a previous cell-only session may
+                // have installed, otherwise normal location mocking would be
+                // silently blocked by the "abhf|*" rule.
+                svc.setSafeApps(null)
                 svc.startMockLocation()
                 svc.setIntervalTimeout(currentLocationUpdateIntervalMs())
                 pushLocationToInjection()
@@ -583,6 +618,9 @@ class ServiceGoRoot : Service() {
         runCatching { mockLocService?.stopMockLocation() }
         runCatching { mockLocService?.setMockGpsStatus(false) }
         runCatching { mockLocService?.setMockCells(null) }
+        // Clear any scoped block-list left over from cell-only mode so the next
+        // normal location session isn't silently blocked.
+        runCatching { mockLocService?.setSafeApps(null) }
         runCatching { stopWifiMockOnInjection() }
         fakelocStartCalled = false
         runCatching { mMockLocationProvider.cleanup() }
@@ -600,6 +638,18 @@ class ServiceGoRoot : Service() {
     //   3  stopMockWifi()
     //   9  setMockWifiNetworks(List<MockWifiNetwork>)
     // ------------------------------------------------------------------
+
+    /**
+     * True if any spoofing surface is still active (location loop, WiFi, or
+     * cell). Used by the granular stop_wifi / stop_cell control actions to
+     * decide whether the whole foreground service can shut down.
+     */
+    private fun isAnyMockActive(): Boolean {
+        if (locationLoopStarted) return true
+        if (pendingWifiList.isNotEmpty()) return true
+        if (pendingCellList.isNotEmpty()) return true
+        return false
+    }
 
     private fun resolveMockWifiBinder(): IBinder? {
         repeat(10) {
@@ -741,13 +791,25 @@ class ServiceGoRoot : Service() {
             return
         }
         runCatching {
-            // Arm the telephony hook (isMocking must be true) but keep GNSS off.
-            svc.startMockLocation()
+            // The cell-tower hooks (TelephonyRegistryHook / PhoneInterfaceManagerHook)
+            // only fire while MockLocationHookManager.isMocking() is true, so cell
+            // mode has to flip the master mock switch on. To avoid ALSO faking the
+            // device location (issue: "单独开启基站模拟位置也会模拟"), we install a
+            // scoped block-list via setSafeApps: scope letters map to features
+            //   a=普通定位  b=路线  h=摇杆  f=GNSS卫星  e=基站
+            // ScopedListFilter treats safeApps as a BLOCK list, so "abhf|*" blocks
+            // every location/GNSS scope for all packages while leaving "e" (cells)
+            // untouched. Result: cells are spoofed, location/GNSS are not.
+            svc.setSafeApps(arrayListOf("abhf|*"))
             svc.setMockGpsStatus(false)
+            // isMocking must be true for the telephony hook; the scoped block-list
+            // above prevents the position itself from being handed to apps.
+            svc.startMockLocation()
             svc.setIntervalTimeout(currentLocationUpdateIntervalMs())
-            // Seed a base fix so getMockLocation() is non-null and the cell
-            // identity/registration looks consistent. Use the first cell with
-            // valid coordinates; otherwise fall back to the requested center.
+            // Seed a base fix so getMockLocation() is non-null — CellInfoFactory and
+            // the onCellLocationChanged bundle read it for the base-station lat/lng.
+            // It is NOT delivered to apps as a position because scope "a"/"h" are
+            // blocked above. Use the first cell with valid coordinates.
             val anchor = pendingCellList.firstOrNull { it.latitude != 0.0 || it.longitude != 0.0 }
             val baseLat = anchor?.latitude ?: mCurLat
             val baseLng = anchor?.longitude ?: mCurLng
@@ -758,12 +820,23 @@ class ServiceGoRoot : Service() {
                 accuracy = 25.0f
                 time = System.currentTimeMillis()
                 elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
-                extras = Bundle().apply { putString("from", "rocker") }
+                extras = Bundle().apply { putString("from", "loc") }
             }
             svc.setMockLocation(loc)
             svc.setMockCells(towers)
-            KailLog.i(this, TAG, "Cell mock active: ${towers.size} towers, anchor=$baseLat,$baseLng")
+            KailLog.i(this, TAG, "Cell mock active: ${towers.size} towers, anchor=$baseLat,$baseLng (location scope blocked)")
         }.onFailure { KailLog.e(this, TAG, "applyCellMockOnInjection: ${it.message}") }
+
+        // The synchronous cell-pull APIs (TelephonyManager.getAllCellInfo /
+        // getCellLocation) are served by com.android.phone, a separate process
+        // that the system_server-only inject never touches. Inject the app-hook
+        // loader into it so PhoneInterfaceManagerHook installs there too;
+        // otherwise apps that poll cells directly (rather than via a
+        // PhoneStateListener push) keep seeing the real towers.
+        Thread({
+            runCatching { RootDeployer.injectAppProcess("com.android.phone") }
+                .onFailure { KailLog.e(this, TAG, "inject com.android.phone: ${it.message}") }
+        }, "ServiceGoRootPhoneInject").start()
     }
 
     private var fakelocStartCalled: Boolean = false
