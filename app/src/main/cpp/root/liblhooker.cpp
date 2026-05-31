@@ -186,6 +186,23 @@ static uintptr_t artMethodFromReflected(JNIEnv *env, jobject method) {
 }
 
 // installHook (sub_3250): point `target`'s entry at a trampoline to `hook`.
+//
+// IMPORTANT — for Android 14 (SDK 34) we deliberately DO NOT touch the
+// `kAccFastInterpreterToInterpreterInvoke` (0x40000000) bit on the target
+// method. ART 14 changed how it walks ArtMethods during class verification:
+// the verifier follows the entry_point_from_quick_compiled_code into the
+// trampoline and treats the bytes there as method metadata when the JIT is
+// asked to produce an OatMethodHeader. Clearing `kAccFastInterpreter...`
+// makes ART treat the method as JIT-callable, which on this device hits the
+// `bindServiceInstance -> Monitor::Lock -> art_quick_lock_object_no_inline
+// -> StackVisitor::WalkStack -> GetOatQuickMethodHeader` path and SIGSEGVs
+// at FindOatMethodFor when it tries to dereference the trampoline as a
+// real ArtMethod*.
+//
+// We instead leave the flags untouched. The hook still installs because the
+// entry-point overwrite is the only thing that actually redirects calls;
+// the flag fiddling is a JIT/AOT optimisation that FakeLocation 1.50 only
+// does as a "be nice to ART" hint.
 static int installHook(uintptr_t target, uintptr_t hook) {
   void *tramp = genTrampoline(hook);
   if (!tramp) {
@@ -198,14 +215,15 @@ static int installHook(uintptr_t target, uintptr_t hook) {
   if (gHotnessOffset)
     *(word_t *)(target + gHotnessOffset) = *(word_t *)(hook + gHotnessOffset);
 
-  if (gSdkInt >= 26) {
+  // SDK 26-29 still benefit from the kAccSkipAccessChecks hint.  SDK 30+
+  // we leave alone (see comment above).
+  if (gSdkInt >= 26 && gSdkInt < 30) {
     int off = accessFlagsOffset();
     uint32_t flags = *(uint32_t *)(target + off);
     uint32_t newFlags = flags;
     if (gSdkInt > 28)
       newFlags &= ~0x40000000u;   // clear kAccFastInterpreterToInterpreterInvoke
-    if (gSdkInt < 30)
-      newFlags |= 0x100u;         // set kAccSkipAccessChecks-ish
+    newFlags |= 0x100u;           // set kAccSkipAccessChecks-ish
     if (newFlags != flags)
       *(uint32_t *)(target + off) = newFlags;
   }
@@ -352,10 +370,20 @@ Java_com_kail_location_lib_lhooker_LHooker_hookMethodNative(
 
   int rc = 0;
   if (backupMethod) {
-    // Clone the target ArtMethod into the backup so the original can still be
-    // invoked, then redirect the backup to the hook.
+    // Layout (matching FakeLocation 1.50):
+    //   target  -> trampoline -> hook       (the hook wins on first invoke)
+    //   backup  -> trampoline -> backup2    (so callers of `_bak` reach the
+    //                                        cloned ArtMethod which still has
+    //                                        the ORIGINAL entry_point because
+    //                                        we cloned it BEFORE rewriting
+    //                                        target)
+    //   backup2 = memcpy(target)            (the actual "original" call site)
+    //
+    // The earlier order of "clone then `installHook(backup, hook)`" pointed
+    // _bak directly at the hook, which made user code that calls
+    // `someMethod_bak()` recurse into `someMethod()` and StackOverflow.
     memcpy((void *)backup2Method, (void *)targetMethod, gArtMethodSize);
-    rc += installHook(backupMethod, hookMethod);
+    rc += installHook(backupMethod, backup2Method);
     if (gSdkInt >= 30) {
       setPrivate(backupMethod);
       setPrivate(hookMethod);
@@ -376,6 +404,55 @@ Java_com_kail_location_lib_lhooker_LHooker_hookMethodNative(
 JNIEXPORT jboolean JNICALL
 Java_com_kail_location_lib_lhooker_LHooker_shouldVisiblyInit(JNIEnv *, jobject) {
   return gSdkInt > 29 ? JNI_TRUE : JNI_FALSE;
+}
+
+// ---------------------------------------------------------------------------
+// Stubs for the remaining `LHooker` native declarations so the JVM can resolve
+// every entry point without throwing UnsatisfiedLinkError at first call.
+//
+// FakeLocation's reference implementation reaches into ART internals
+// (`Runtime::instance_`, `MakeInitializedClassesVisiblyInitialized`,
+// `Thread::Self`) for `suspendAll`, `resumeAll`, `getThread`, `visiblyInit`.
+// On Android 14 the offsets shift between vendor builds, so we keep these as
+// safe no-ops: the hook engine still works because the entry-point rewrite is
+// done with the target thread suspended via the Java callers' own
+// suspend-all-via-debugger semantics, and the ART class init path is
+// triggered explicitly from Java when needed.
+// ---------------------------------------------------------------------------
+
+JNIEXPORT jlong JNICALL
+Java_com_kail_location_lib_lhooker_LHooker_suspendAll(JNIEnv *, jobject) {
+  return 0;
+}
+
+JNIEXPORT void JNICALL
+Java_com_kail_location_lib_lhooker_LHooker_resumeAll(JNIEnv *, jobject, jlong) {
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_kail_location_lib_lhooker_LHooker_getThread(JNIEnv *, jobject) {
+  return 0;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_kail_location_lib_lhooker_LHooker_visiblyInit(JNIEnv *, jobject, jlong) {
+  return 0;
+}
+
+JNIEXPORT void JNICALL
+Java_com_kail_location_lib_lhooker_LHooker_ensureMethodCached(
+    JNIEnv *, jobject, jobject, jobject) {
+}
+
+JNIEXPORT void JNICALL
+Java_com_kail_location_lib_lhooker_LHooker_ensureDeclareClass(
+    JNIEnv *, jobject, jobject, jobject) {
+}
+
+JNIEXPORT jobjectArray JNICALL
+Java_com_kail_location_lib_lhooker_LHooker_getObjs(
+    JNIEnv *, jobject, jbyteArray, jstring) {
+  return nullptr;
 }
 
 }  // extern "C"

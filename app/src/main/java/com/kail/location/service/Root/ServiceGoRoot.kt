@@ -503,14 +503,29 @@ class ServiceGoRoot : Service() {
 
     private fun stopMockLocationOnInjection() {
         runCatching { mockLocService?.stopMockLocation() }
+        fakelocStartCalled = false
         runCatching { mMockLocationProvider.cleanup() }
             .onFailure { KailLog.e(this, TAG, "cleanup providers: ${it.message}") }
     }
 
+    private var fakelocStartCalled: Boolean = false
+
     private fun pushLocationToInjection() {
         // Path 1: FakeLocation binder.
-        val svc = mockLocService
+        // Re-resolve every push so that updates start flowing through the
+        // FakeLocation injection layer as soon as kail_inject finishes,
+        // even if the location loop began before the binder was online.
+        val svc = mockLocService ?: resolveMockLocService()
         if (svc != null) {
+            // First time we got the binder, tell it to start mocking.
+            if (!fakelocStartCalled) {
+                fakelocStartCalled = true
+                runCatching {
+                    svc.startMockLocation()
+                    svc.setIntervalTimeout(currentLocationUpdateIntervalMs())
+                    KailLog.i(this, TAG, "FakeLocation startMockLocation invoked")
+                }.onFailure { KailLog.e(this, TAG, "startMockLocation (binder): ${it.message}") }
+            }
             runCatching {
                 val loc = Location(LocationManager.GPS_PROVIDER).apply {
                     latitude = mCurLat

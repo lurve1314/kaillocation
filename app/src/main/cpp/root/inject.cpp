@@ -232,6 +232,12 @@ static uint32_t resolveRemoteSymbolAddress(const char *libraryPath, uint32_t loc
 //   uregs[15]    = pc
 //   uregs[16]    = cpsr  (T-bit at 0x20)
 // ---------------------------------------------------------------------------
+//
+// The watchdog timeout is configurable: see inject64.cpp for rationale. The
+// short default protects calloc/dlopen calls; the long timeout is set
+// around the doRun() call which does the expensive InjectDex JNI bring-up.
+static uint64_t gCallTimeoutMs = 5000;
+
 static uint32_t callRemoteFunction(uint32_t func, int argc, ...) {
   struct pt_regs regs;
   struct pt_regs backup;
@@ -272,9 +278,10 @@ static uint32_t callRemoteFunction(uint32_t func, int argc, ...) {
   uint64_t startMs = nowMillis();
   bool timed_out = false;
   while (true) {
-    if (nowMillis() - startMs > 5000ULL) {
+    if (nowMillis() - startMs > gCallTimeoutMs) {
       __android_log_print(ANDROID_LOG_ERROR, kInjectorLogTag,
-                          "callRemoteFunction watchdog tripped (5s); aborting");
+                          "callRemoteFunction watchdog tripped (%llums); aborting",
+                          (unsigned long long)gCallTimeoutMs);
       timed_out = true;
       break;
     }
@@ -426,7 +433,10 @@ static int injectLibraryIntoProcess(int pid, const char *libraryPath, const char
     result = 1;
     if (doRunLocal && doRunRemote) {
       uint32_t remoteArg = writeRemoteString(entryArg);
+      // doRun does the InjectDex JNI bring-up — see inject64.cpp comment.
+      gCallTimeoutMs = 60000;
       callRemoteFunction(doRunRemote, 2, javaVm, remoteArg);
+      gCallTimeoutMs = 5000;
       callRemoteFunction(gRemoteFree, 1, remoteArg);
       result = 0;
     }

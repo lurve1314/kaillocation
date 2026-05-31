@@ -135,11 +135,23 @@ object RootDeployer {
     fun deployFakelocLibs(context: Context): Boolean {
         var initLoader = false
         val abi = preferredAbi()
+        val isArm64 = abi == "arm64-v8a"
         for (name in FAKELOC_LIBS) {
             val src = File(context.applicationInfo.nativeLibraryDir, name)
             val dst = File(FAKELOC_DIR, name)
-            if (copyAndChmod(context, src, "lib/$abi/$name", dst)) {
-                if (name == "libfakeloc_init.so") initLoader = true
+            val ok = copyAndChmod(context, src, "lib/$abi/$name", dst)
+            if (ok && name == "libfakeloc_init.so") initLoader = true
+
+            // InjectDex.java probes both `<name>.so` (arm) and `<name>64.so`
+            // (arm64) without checking which side actually exists. Mirror the
+            // file under the matching suffix for the active ABI so the lookup
+            // succeeds regardless of which path it picks first.
+            if (ok && isArm64 && !name.contains("64.so")) {
+                val sixtyFour = name.replace(".so", "64.so")
+                val mirror = File(FAKELOC_DIR, sixtyFour)
+                ShellUtils.executeCommand("cp -f ${dst.absolutePath} ${mirror.absolutePath}")
+                ShellUtils.executeCommand("chmod 777 ${mirror.absolutePath}")
+                ShellUtils.executeCommand("chcon u:object_r:system_file:s0 ${mirror.absolutePath}")
             }
         }
         return initLoader
@@ -190,6 +202,17 @@ object RootDeployer {
         runCatching {
             ShellUtils.executeCommand("setenforce 0")
             for (d in listOf(STAGING_DIR, FAKELOC_DIR)) {
+                ShellUtils.executeCommand("mkdir -p $d")
+                ShellUtils.executeCommand("chmod 777 $d")
+                ShellUtils.executeCommand("chcon u:object_r:system_file:s0 $d")
+            }
+            // libfakeloc_init.cpp uses /data/kail-loc/system_dex as the
+            // DexClassLoader optimization output dir. If it doesn't exist
+            // before we inject, ART falls back to compiling the 33MB APK in
+            // an in-process buffer which can take >10s on cold cache and
+            // sometimes never finishes (system_server gets killed by its
+            // own watchdog). Pre-create it with permissive SELinux labels.
+            for (d in listOf("$FAKELOC_DIR/system_dex", "$FAKELOC_DIR/oat")) {
                 ShellUtils.executeCommand("mkdir -p $d")
                 ShellUtils.executeCommand("chmod 777 $d")
                 ShellUtils.executeCommand("chcon u:object_r:system_file:s0 $d")

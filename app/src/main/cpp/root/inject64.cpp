@@ -242,6 +242,13 @@ static uint64_t resolveRemoteSymbolAddress(const char *libraryPath, uint64_t loc
 //   to the target function and lr to 0 (so the return faults with SIGSEGV),
 //   continue, wait for the fault, read x0 as the return value, then restore.
 // ---------------------------------------------------------------------------
+//
+// The watchdog timeout is configurable so the long-running doRun() call (which
+// does the InjectDex JNI bring-up, including DexClassLoader compile of the
+// 33MB APK from system_server) does not get killed by the same 5s timeout
+// that protects the cheap calloc/dlopen calls.
+static uint64_t gCallTimeoutMs = 5000;
+
 static uint64_t callRemoteFunction(uint64_t func, int argc, ...) {
   // aarch64 user_pt_regs: x0..x30, sp, pc, pstate == 34 * 8 == 272 bytes.
   uint64_t regs[34]   = {0};
@@ -287,16 +294,17 @@ static uint64_t callRemoteFunction(uint64_t func, int argc, ...) {
   // WATCHDOG: if the remote function hangs (typically because the linker
   // mutex is held by a sibling thread of the tracee), waitpid will block
   // forever and the tracee stays in ptrace_stop, which on system_server
-  // freezes the entire device. Cap the total wait at 5 seconds, then
-  // PTRACE_DETACH so the tracee resumes runnable.
+  // freezes the entire device. Cap the total wait at gCallTimeoutMs ms,
+  // then PTRACE_DETACH so the tracee resumes runnable.
   int status = 0;
   uint64_t startMs = nowMillis();
   bool timed_out = false;
   while (true) {
-    if (nowMillis() - startMs > 5000ULL) {
+    if (nowMillis() - startMs > gCallTimeoutMs) {
       __android_log_print(ANDROID_LOG_ERROR, kInjectorLogTag,
-                          "callRemoteFunction watchdog tripped (5s); "
+                          "callRemoteFunction watchdog tripped (%llums); "
                           "remote func 0x%llx never returned. Aborting.",
+                          (unsigned long long)gCallTimeoutMs,
                           (unsigned long long)func);
       timed_out = true;
       break;
@@ -466,7 +474,14 @@ static int injectLibraryIntoProcess(int pid, const char *libraryPath, const char
     result = 1;
     if (doRunLocal && doRunRemote) {
       uint64_t remoteArg = writeRemoteString(entryArg);
+      // doRun does the InjectDex JNI bring-up, which includes
+      // DexClassLoader compile of the 33MB APK from inside system_server.
+      // The first cold-cache run on the ZTE NX769J takes >5s, so allow a
+      // generous 60s window for this single call. After it completes
+      // we restore the default 5s timeout for any cleanup calls.
+      gCallTimeoutMs = 60000;
       callRemoteFunction(doRunRemote, 2, javaVm, remoteArg);
+      gCallTimeoutMs = 5000;
       callRemoteFunction(gRemoteFree, 1, remoteArg);
       result = 0;
     }
