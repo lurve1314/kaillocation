@@ -13,6 +13,7 @@
 
 #include "sensor_simulator.h"
 #include "kail_log.h"
+#include "elf_sym_resolver.h"
 
 #define LOG_TAG "KailNativeSensor"
 #define ALOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -38,7 +39,21 @@ static uint64_t send_objects_offset = 0;
 typedef void (*ConvertToSensorEventFunc)(void* param_1, void* param_2);
 static ConvertToSensorEventFunc original_convert_to_sensor_event = nullptr;
 static bool convert_to_sensor_event_hook_installed = false;
-static uint64_t convert_to_sensor_event_offset = 0x5b420;
+static uint64_t convert_to_sensor_event_offset = 0;
+
+// Mangled symbol names used for RUNTIME resolution (plan B). Resolving the
+// address from the in-memory ELF dynsym makes step simulation work on any ROM
+// without an on-device readelf pass or a hardcoded offset. The offsets above
+// are only a last-resort fallback when none of these names resolve.
+static const char* kSendObjectsSymbols[] = {
+    "_ZN7android7BitTube11sendObjectsERKNS_2spIS0_EEPKvmm",
+};
+static const char* kConvertSymbols[] = {
+    // AIDL sensors HAL (Android 12+): convertToSensorEvent(aidl Event, ...)
+    "_ZN7android8hardware7sensors14implementation20convertToSensorEventERKN4aidl7android8hardware7sensors5EventEP15sensors_event_t",
+    // HIDL V1_0 fallback (older ROMs): convertToSensorEvent(V1_0 Event, ...)
+    "_ZN7android8hardware7sensors4V1_014implementation20convertToSensorEventERKNS2_5EventEP15sensors_event_t",
+};
 
 static int stepdetectorTrigger = 0;
 static int stepcounterTrigger = 0;
@@ -258,43 +273,51 @@ extern "C" void hooked_convert_to_sensor_event(void* param_1, void* param_2) {
 }
 
 static void install_send_objects_hook() {
-    void* base = nullptr;
-    
-    FILE* fp = fopen("/proc/self/maps", "r");
-    if (!fp) {
-        KLOGE(kHookTag, "install_send_objects_hook: cannot open /proc/self/maps");
-        return;
-    }
-    
-    char line[512];
-    while (fgets(line, sizeof(line), fp)) {
-        if (strstr(line, "libsensor.so")) {
-            uint64_t start;
-            sscanf(line, "%lx-", &start);
-            base = (void*)start;
-            break;
+    // Plan B: resolve the live address from the in-memory ELF dynsym first.
+    // This works on any ROM without an on-device readelf pass or a hardcoded
+    // offset. Falls back to the offset supplied via JNI only if resolution
+    // fails (e.g. the symbol is unexpectedly absent from .dynsym).
+    void* addr = kailsym::resolve("libsensor.so", kSendObjectsSymbols,
+                                  (int)(sizeof(kSendObjectsSymbols) / sizeof(kSendObjectsSymbols[0])),
+                                  &send_objects_offset);
+
+    if (!addr) {
+        void* base = nullptr;
+        FILE* fp = fopen("/proc/self/maps", "r");
+        if (!fp) {
+            KLOGE(kHookTag, "install_send_objects_hook: cannot open /proc/self/maps");
+            return;
         }
+        char line[512];
+        while (fgets(line, sizeof(line), fp)) {
+            if (strstr(line, "libsensor.so")) {
+                unsigned long long start = 0;
+                sscanf(line, "%llx-", &start);
+                base = (void*)(uintptr_t)start;
+                break;
+            }
+        }
+        fclose(fp);
+
+        if (!base) {
+            KLOGW(kHookTag, "install_send_objects_hook: libsensor.so not mapped in this process");
+            return;
+        }
+        if (send_objects_offset == 0) {
+            KLOGW(kHookTag, "install_send_objects_hook: runtime resolve failed and offset is 0, skip");
+            return;
+        }
+        addr = (void*)((char*)base + send_objects_offset);
+        KLOGW(kHookTag, "install_send_objects_hook: using fallback offset 0x%llx",
+              (unsigned long long)send_objects_offset);
     }
-    fclose(fp);
-    
-    if (!base) {
-        KLOGW(kHookTag, "install_send_objects_hook: libsensor.so not mapped in this process");
-        return;
-    }
-    
-    if (send_objects_offset == 0) {
-        KLOGW(kHookTag, "install_send_objects_hook: send_objects_offset is 0, skip");
-        return;
-    }
-    
-    void* addr = (void*)((char*)base + send_objects_offset);
-    
+
     int ret = DobbyHook(addr, (void*)hooked_send_objects, (void**)&original_send_objects);
     
     if (ret == 0) {
         send_objects_hook_installed = true;
-        KLOGI(kHookTag, "install_send_objects_hook: hooked libsensor.so send_objects at %p (base=%p off=0x%llx)",
-              addr, base, (unsigned long long)send_objects_offset);
+        KLOGI(kHookTag, "install_send_objects_hook: hooked libsensor.so send_objects at %p (off=0x%llx)",
+              addr, (unsigned long long)send_objects_offset);
     } else {
         KLOGE(kHookTag, "install_send_objects_hook: DobbyHook failed rc=%d at %p", ret, addr);
     }
@@ -302,42 +325,50 @@ static void install_send_objects_hook() {
 
 static void install_convert_to_sensor_event_hook() {
     void* base = nullptr;
-    
-    FILE* fp = fopen("/proc/self/maps", "r");
-    if (!fp) {
-        KLOGE(kHookTag, "install_convert_to_sensor_event_hook: cannot open /proc/self/maps");
-        return;
-    }
-    
-    char line[512];
-    while (fgets(line, sizeof(line), fp)) {
-        if (strstr(line, "libsensorservice.so")) {
-            uint64_t start;
-            sscanf(line, "%lx-", &start);
-            base = (void*)start;
-            break;
+
+    // Plan B: resolve the live address from libsensorservice.so's dynsym first
+    // (works on any ROM, no readelf, no hardcoded 0x5b420). Fall back to the
+    // JNI-supplied offset only if every known symbol name fails to resolve.
+    void* addr = kailsym::resolve("libsensorservice.so", kConvertSymbols,
+                                  (int)(sizeof(kConvertSymbols) / sizeof(kConvertSymbols[0])),
+                                  &convert_to_sensor_event_offset);
+
+    if (!addr) {
+        FILE* fp = fopen("/proc/self/maps", "r");
+        if (!fp) {
+            KLOGE(kHookTag, "install_convert_to_sensor_event_hook: cannot open /proc/self/maps");
+            return;
         }
+        char line[512];
+        while (fgets(line, sizeof(line), fp)) {
+            if (strstr(line, "libsensorservice.so")) {
+                unsigned long long start = 0;
+                sscanf(line, "%llx-", &start);
+                base = (void*)(uintptr_t)start;
+                break;
+            }
+        }
+        fclose(fp);
+
+        if (!base) {
+            KLOGW(kHookTag, "install_convert_to_sensor_event_hook: libsensorservice.so not mapped in this process");
+            return;
+        }
+        if (convert_to_sensor_event_offset == 0) {
+            KLOGW(kHookTag, "install_convert_to_sensor_event_hook: runtime resolve failed and offset is 0, skip");
+            return;
+        }
+        addr = (void*)((char*)base + convert_to_sensor_event_offset);
+        KLOGW(kHookTag, "install_convert_to_sensor_event_hook: using fallback offset 0x%llx",
+              (unsigned long long)convert_to_sensor_event_offset);
     }
-    fclose(fp);
-    
-    if (!base) {
-        KLOGW(kHookTag, "install_convert_to_sensor_event_hook: libsensorservice.so not mapped in this process");
-        return;
-    }
-    
-    if (convert_to_sensor_event_offset == 0) {
-        KLOGW(kHookTag, "install_convert_to_sensor_event_hook: offset is 0, skip");
-        return;
-    }
-    
-    void* addr = (void*)((char*)base + convert_to_sensor_event_offset);
-    
+
     int ret = DobbyHook(addr, (void*)hooked_convert_to_sensor_event, (void**)&original_convert_to_sensor_event);
     
     if (ret == 0) {
         convert_to_sensor_event_hook_installed = true;
-        KLOGI(kHookTag, "install_convert_to_sensor_event_hook: hooked libsensorservice.so at %p (base=%p off=0x%llx)",
-              addr, base, (unsigned long long)convert_to_sensor_event_offset);
+        KLOGI(kHookTag, "install_convert_to_sensor_event_hook: hooked libsensorservice.so at %p (off=0x%llx)",
+              addr, (unsigned long long)convert_to_sensor_event_offset);
     } else {
         KLOGE(kHookTag, "install_convert_to_sensor_event_hook: DobbyHook failed rc=%d at %p", ret, addr);
     }
@@ -423,12 +454,12 @@ JNIEXPORT jboolean JNICALL
 Java_com_kail_location_inject_utils_NativeStepHook_nativeInitHook(
     JNIEnv* env, jclass clazz) {
     gait::SensorSimulator::Get().Init();
-    if (send_objects_offset != 0) {
-        install_send_objects_hook();
-    }
-    if (convert_to_sensor_event_offset != 0) {
-        install_convert_to_sensor_event_hook();
-    }
+    // Always attempt installation: the install functions resolve the target
+    // address at runtime from the in-memory ELF dynsym, so they no longer need
+    // a non-zero offset to be supplied up front. The offset globals are only a
+    // fallback when runtime resolution fails.
+    install_send_objects_hook();
+    install_convert_to_sensor_event_hook();
     gait::SensorSimulator::Get().ReloadConfig();
     // Report whether at least one hook is installed so Java can log status.
     bool ok = send_objects_hook_installed || convert_to_sensor_event_hook_installed;
@@ -555,13 +586,9 @@ Java_com_kail_location_root_NativeSensorHook_nativeInitHook(
 ) {
     gait::SensorSimulator::Get().Init();
     
-    if (send_objects_offset != 0) {
-        install_send_objects_hook();
-    }
+    install_send_objects_hook();
     
-    if (convert_to_sensor_event_offset != 0) {
-        install_convert_to_sensor_event_hook();
-    }
+    install_convert_to_sensor_event_hook();
     
     gait::SensorSimulator::Get().ReloadConfig();
     KLOGI(kHookTag, "root.NativeSensorHook.nativeInitHook: sendObjects=%d convert=%d",

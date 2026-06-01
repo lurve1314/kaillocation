@@ -280,30 +280,30 @@ public class MockStepSensorManager {
     }
 
     /**
-     * Install the native gait/step hook only when it is both requested and
-     * safe:
-     *   - the offsets file exists and both offsets parsed non-zero, and
-     *   - an explicit enable marker is present
-     *     ({@code /data/local/kail-lib/kail_step_native_enabled}).
-     * This keeps a wrong/zero offset from ever crashing SensorService, and lets
-     * the feature be turned off instantly (delete the marker) without a rebuild.
+     * Install the native gait/step hook when step mocking is enabled.
+     *
+     * <p>Plan B: the native side ({@link NativeStepHook}/hook.cpp) now resolves
+     * the {@code convertToSensorEvent} / {@code sendObjects} addresses at
+     * runtime from the in-memory ELF dynsym of libsensorservice.so /
+     * libsensor.so. That removes the previous reliance on a fragile on-device
+     * readelf pass and a hardcoded 0x5b420 offset, both of which could hook the
+     * wrong address and crash SensorService. Because resolution is now based on
+     * the real symbol table, it is safe to install whenever step mocking is on —
+     * no enable-marker / offsets-file gate is required.
+     *
+     * <p>The offsets file, when present, is still passed in as a fallback for
+     * the rare case where the symbol is absent from .dynsym.
      */
     private static void maybeInstallNativeStepHook() {
         try {
-            if (!new java.io.File("/data/local/kail-lib/kail_step_native_enabled").exists()) {
-                Log.i("MSU", "native step hook disabled (no enable marker); skipping system_server hook");
-                return;
-            }
-            long[] off = readSensorOffsets();
-            // Require BOTH offsets to be present and sane before touching
-            // SensorService memory. A zero/garbage offset is rejected.
-            if (off[0] == 0L || off[1] == 0L) {
-                Log.w("MSU", "native step hook: offsets unavailable (write=" + off[0] + " convert=" + off[1] + "), skipping");
-                return;
-            }
+            long[] off = readSensorOffsets(); // optional fallback only
             float spm = stepSpeed > 0 ? stepSpeed * 60f : 120f; // stepSpeed is steps/sec
+            // off[0]/off[1] may be 0; the native installer self-resolves via
+            // dynsym and only uses these as a fallback.
             NativeStepHook.install(off[0], off[1], spm);
             NativeStepHook.start(spm, 0, 0);
+            Log.i("MSU", "native step hook install requested (spm=" + spm
+                    + ", fallback write=" + off[0] + " convert=" + off[1] + ")");
         } catch (Throwable th) {
             th.printStackTrace();
         }
