@@ -84,7 +84,7 @@ public final class MockLocationServiceManager {
     public IMockLocationManager getMockLocationService() {
         if (this.mockLocationService == null) {
             try {
-                this.mockLocationService = IMockLocationManager.Stub.asInterface(ServiceManagerBridge.getService(ClassLoader.getSystemClassLoader(), "service_mock_location"));
+                this.mockLocationService = IMockLocationManager.Stub.asInterface(ServiceManagerBridge.getService(ClassLoader.getSystemClassLoader(), "oem_location"));
             } catch (Throwable th) {
                 th.printStackTrace();
             }

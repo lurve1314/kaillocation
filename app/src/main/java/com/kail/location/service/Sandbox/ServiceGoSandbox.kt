@@ -360,16 +360,14 @@ class ServiceGoSandbox : Service() {
                             updateJoystickStatus()
                         }
                     }
-                    if (!isStop) {
-                        SandboxLocationHook.updateLocation(mCurLat, mCurLng, mCurAlt, mCurBea, mSpeed)
-                    }
+                    SandboxLocationHook.updateLocation(mCurLat, mCurLng, mCurAlt, mCurBea, mSpeed)
                     sendEmptyMessage(HANDLER_MSG_ID)
                 } catch (e: InterruptedException) {
                     KailLog.e(this@ServiceGoSandbox, "ServiceGoSandbox", "handleMessage interrupted: ${e.message}")
                     Thread.currentThread().interrupt()
                 } catch (e: Exception) {
                     KailLog.e(this@ServiceGoSandbox, "ServiceGoSandbox", "handleMessage exception: ${e.message}")
-                    if (!isStop) sendEmptyMessageDelayed(HANDLER_MSG_ID, 100)
+                    sendEmptyMessageDelayed(HANDLER_MSG_ID, 100)
                 }
             }
         }

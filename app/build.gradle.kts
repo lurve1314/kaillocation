@@ -15,8 +15,8 @@ android {
         applicationId = "com.kail.location"
         minSdk = 27
         targetSdk = 36
-        versionCode = 34
-        versionName = "1.6.1"
+        versionCode = 35
+        versionName = "1.6.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         

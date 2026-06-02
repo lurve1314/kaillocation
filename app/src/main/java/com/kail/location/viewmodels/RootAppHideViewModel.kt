@@ -17,7 +17,7 @@ import kotlinx.coroutines.flow.asStateFlow
  * 并可选地隐藏本机已安装的其它应用；不在列表里的应用不受影响。
  *
  * 底层实现：配置通过 [com.kail.location.service.Root.ServiceGoRoot] 下发到 FakeLocation
- * 注入层的 service_hide_root（IHideRootManager）。ServiceGoRoot 会 stage 注入、推送
+ * 注入层的 oem_integrity（IHideRootManager）。ServiceGoRoot 会 stage 注入、推送
  * 隐藏配置，并对每个目标应用进程执行 app-hook 注入，使 RootHideHook / LAntiDetect 在
  * 这些进程里生效。停止则清空配置。
  */
@@ -75,7 +75,7 @@ class RootAppHideViewModel(application: Application) : AndroidViewModel(applicat
     /**
      * Push the hide config to ServiceGoRoot. When enabling, the service is
      * started in HIDE_ONLY mode (no location mock) so it stages the inject,
-     * pushes the config into service_hide_root, and injects the target apps.
+     * pushes the config into oem_integrity, and injects the target apps.
      * When disabling, a stop_hide control action tears the config down.
      */
     private fun pushHideConfig(enabled: Boolean) {

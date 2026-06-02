@@ -150,7 +150,7 @@ class ServiceGoRoot : Service() {
      * Set true only when the start intent flagged HIDE_ONLY — the "Root与应用
      * 隐藏" (Root & App Hiding) screen. This mode does not mock location; it
      * only pushes the hide allow-list/flags into the FakeLocation
-     * service_hide_root binder and injects the target app processes so
+     * oem_integrity binder and injects the target app processes so
      * RootHideHook / LAntiDetect install there.
      */
     private var modeHideOnly: Boolean = false
@@ -164,14 +164,14 @@ class ServiceGoRoot : Service() {
     /** Packages the hide features apply to. Empty means "no targets". */
     private var pendingHidePackages: List<String> = emptyList()
 
-    /** Cached binder into the FakeLocation hide-root layer (service_hide_root). */
+    /** Cached binder into the FakeLocation hide-root layer (oem_integrity). */
     private var hideRootService: com.kail.location.inject.fakelocation.aidl.IHideRootManager? = null
 
     /**
      * WiFi / cell networks selected in the UI for spoofing. Populated from the
      * start intent's [EXTRA_WIFI_LIST] / [EXTRA_CELL_LIST] parcelable extras.
-     * Pushed into the FakeLocation injection layer via the service_mock_wifi /
-     * service_mock_location binders once the inject is online.
+     * Pushed into the FakeLocation injection layer via the oem_wifi /
+     * oem_location binders once the inject is online.
      */
     private var pendingWifiList: List<com.kail.location.models.WifiInfo> = emptyList()
     private var pendingCellList: List<com.kail.location.models.CellInfo> = emptyList()
@@ -245,7 +245,7 @@ class ServiceGoRoot : Service() {
         var isRunning: Boolean = false
             private set
 
-        // service_mock_wifi (IMockWifiManager) raw-transaction constants.
+        // oem_wifi (IMockWifiManager) raw-transaction constants.
         private const val WIFI_DESCRIPTOR = "com.kail.location.aidl.IMockWifiManager"
         private const val TXN_START_MOCK_WIFI = 2
         private const val TXN_STOP_MOCK_WIFI = 3
@@ -301,7 +301,7 @@ class ServiceGoRoot : Service() {
             modeHideOnly = intent.getBooleanExtra(EXTRA_HIDE_ONLY, false)
 
             // "Root与应用隐藏" start: no location/WiFi/cell mocking, just stage
-            // the inject, push the hide config into service_hide_root, and
+            // the inject, push the hide config into oem_integrity, and
             // inject the selected app processes so RootHideHook installs there.
             if (modeHideOnly) {
                 hideRootEnabled = intent.getBooleanExtra(EXTRA_HIDE_ROOT, false)
@@ -369,7 +369,7 @@ class ServiceGoRoot : Service() {
             ensureNativeHookOnce()
             Thread({
                 startMockLocationOnInjection()
-                // Step mock goes through the service_mock_location binder, which
+                // Step mock goes through the oem_location binder, which
                 // only exists after the inject above completes — so apply it
                 // here on the same bootstrap thread rather than on the main
                 // thread before the binder is online.
@@ -622,7 +622,7 @@ class ServiceGoRoot : Service() {
 
     private fun applyStepSimulation() {
         // Primary path — the FakeLocation step sensor mock via the
-        // service_mock_location binder (runs inside system_server, hooks
+        // oem_location binder (runs inside system_server, hooks
         // libsensorservice's global sensor stream). setStepSpeed takes
         // steps-per-second; the UI cadence is in steps-per-minute.
         runCatching {
@@ -663,7 +663,7 @@ class ServiceGoRoot : Service() {
     // Two backends are tried in order:
     //  1. The FakeLocation injection layer (preferred) — only available
     //     after RootDeployer.ensureBaseline has run kail_inject on
-    //     system_server and the binder service "service_mock_location" is
+    //     system_server and the binder service "oem_location" is
     //     registered.  This is the original FakeLocation hook path.
     //  2. Standard Android test-provider via [MockLocationProvider] — same
     //     code Developer mode uses.  Always works once the AppOps grant
@@ -673,7 +673,7 @@ class ServiceGoRoot : Service() {
     private fun resolveMockLocService(): IMockLocationManager? {
         mockLocService?.let { return it }
         val binder = runCatching {
-            ServiceManagerBridge.getService(ClassLoader.getSystemClassLoader(), "service_mock_location")
+            ServiceManagerBridge.getService(ClassLoader.getSystemClassLoader(), "oem_location")
         }.getOrNull() ?: return null
         return runCatching { IMockLocationManager.Stub.asInterface(binder) }.getOrNull()?.also {
             mockLocService = it
@@ -703,12 +703,12 @@ class ServiceGoRoot : Service() {
      */
     private fun applyAllowPackages(pkgs: List<String>) {
         val list = ArrayList(pkgs)
-        // service_mock_location (covers location, GNSS, cells — all gated by
+        // oem_location (covers location, GNSS, cells — all gated by
         // MockLocationHookManager.isAllowMockPackage).
         runCatching {
             resolveMockLocService()?.setAllowMockPackages(if (list.isEmpty()) null else list)
         }.onFailure { KailLog.e(this, TAG, "setAllowMockPackages(loc): ${it.message}") }
-        // service_mock_wifi (MockWifiConfigManager.setAllowMockPackages, code 7).
+        // oem_wifi (MockWifiConfigManager.setAllowMockPackages, code 7).
         runCatching {
             val binder = resolveMockWifiBinder()
             if (binder != null) {
@@ -743,10 +743,10 @@ class ServiceGoRoot : Service() {
     }
 
     // ------------------------------------------------------------------
-    // Root / app-list hiding bridge (service_hide_root)
+    // Root / app-list hiding bridge (oem_integrity)
     //
     // Drives the "Root与应用隐藏" screen. The FakeLocation injection layer
-    // registers an IHideRootManager under "service_hide_root"; the per-app
+    // registers an IHideRootManager under "oem_integrity"; the per-app
     // RootHideHook / LAntiDetect (installed via AppProcessHook.applyHookToApp)
     // gate entirely on this binder:
     //   isHideRootEnabled()      -> master switch (refreshHideRootEnabled gates
@@ -762,7 +762,7 @@ class ServiceGoRoot : Service() {
         hideRootService?.let { return it }
         repeat(10) {
             val binder = runCatching {
-                ServiceManagerBridge.getService(ClassLoader.getSystemClassLoader(), "service_hide_root")
+                ServiceManagerBridge.getService(ClassLoader.getSystemClassLoader(), "oem_integrity")
             }.getOrNull()
             if (binder != null) {
                 return runCatching {
@@ -778,7 +778,7 @@ class ServiceGoRoot : Service() {
     }
 
     /**
-     * Stage the inject (so service_hide_root exists), push the hide config,
+     * Stage the inject (so oem_integrity exists), push the hide config,
      * and inject every target app process so RootHideHook installs there.
      */
     private fun startHideOnInjection() {
@@ -787,7 +787,7 @@ class ServiceGoRoot : Service() {
 
         val svc = resolveHideRootService()
         if (svc == null) {
-            KailLog.w(this, TAG, "service_hide_root binder not online yet")
+            KailLog.w(this, TAG, "oem_integrity binder not online yet")
             return
         }
         val pkgs = ArrayList(pendingHidePackages)
@@ -874,12 +874,12 @@ class ServiceGoRoot : Service() {
 
         // WiFi-only / cell-only modes must NOT turn on GNSS satellite
         // mocking, and WiFi-only must not start location mocking at all.
-        // They still need the inject to have run (so the service_mock_wifi /
-        // service_mock_location binders exist). We route the selected
+        // They still need the inject to have run (so the oem_wifi /
+        // oem_location binders exist). We route the selected
         // networks into the FakeLocation injection layer below.
         if (modeWifiOnly) {
             val wsvc = resolveMockLocService()
-            diag.step("service_mock_location binder", wsvc != null,
+            diag.step("oem_location binder", wsvc != null,
                 if (wsvc != null) "已注册" else "未注册——注入未生效")
             // WiFi spoofing is fully independent of location: WifiServiceHook
             // gates only on MockWifiConfigManager.isMockWifiEnabled(). Clear
@@ -905,7 +905,7 @@ class ServiceGoRoot : Service() {
 
         if (modeCellOnly) {
             val csvc = resolveMockLocService()
-            diag.step("service_mock_location binder", csvc != null,
+            diag.step("oem_location binder", csvc != null,
                 if (csvc != null) "已注册" else "未注册——注入未生效")
             // Cell spoofing goes through TelephonyRegistryHook, whose isHook()
             // requires MockLocationHookManager.isMocking()==true. So cell mode
@@ -924,9 +924,13 @@ class ServiceGoRoot : Service() {
         // Prefer the FakeLocation binder if the inject brought it up. Use the
         // retry resolver so a binder that registers slightly after inject
         // returns isn't misdiagnosed as "not registered".
+        // Temporarily switch SELinux to permissive so untrusted_app can
+        // find the oem_location binder in ServiceManager; restore
+        // enforcing once the binder is cached and the initial mock setup is done.
+        ShellUtils.executeCommand("setenforce 0")
         val svc = resolveMockLocServiceWithRetry()
         diag.step(
-            "service_mock_location binder",
+            "oem_location binder",
             svc != null,
             if (svc != null) "已注册，走 FakeLocation 注入层（强）"
             else "未注册——注入未生效，将回退到测试Provider（弱，易被检测）"
@@ -944,11 +948,13 @@ class ServiceGoRoot : Service() {
                 KailLog.i(this, TAG, "FakeLocation mock-location active lat=$mCurLat lng=$mCurLng")
                 true
             }.getOrElse { KailLog.e(this, TAG, "startMockLocation (binder): ${it.message}"); diag.error("启动 FakeLocation 模拟", it); false }
+            ShellUtils.executeCommand("setenforce 1")
             diag.step("启动 FakeLocation 模拟", started, "lat=$mCurLat lng=$mCurLng")
             diag.verdict(started, "FakeLocation 注入层模拟生效")
             diag.finish()
             return
         }
+        ShellUtils.executeCommand("setenforce 1")
 
         // Fallback: register GPS + NETWORK test providers and push an initial fix.
         val fallbackOk = runCatching {
@@ -1046,7 +1052,7 @@ class ServiceGoRoot : Service() {
     }
 
     // ------------------------------------------------------------------
-    // WiFi spoofing bridge (service_mock_wifi)
+    // WiFi spoofing bridge (oem_wifi)
     //
     // IMockWifiManager ships with only a Binder.Stub (no client-side Proxy),
     // so the controller process talks to the registered service via raw
@@ -1073,7 +1079,7 @@ class ServiceGoRoot : Service() {
     private fun resolveMockWifiBinder(): IBinder? {
         repeat(10) {
             val binder = runCatching {
-                ServiceManagerBridge.getService(ClassLoader.getSystemClassLoader(), "service_mock_wifi")
+                ServiceManagerBridge.getService(ClassLoader.getSystemClassLoader(), "oem_wifi")
             }.getOrNull()
             if (binder != null) return binder
             runCatching { Thread.sleep(300) }
@@ -1105,7 +1111,7 @@ class ServiceGoRoot : Service() {
         }
         val binder = resolveMockWifiBinder()
         if (binder == null) {
-            KailLog.w(this, TAG, "service_mock_wifi binder not online yet")
+            KailLog.w(this, TAG, "oem_wifi binder not online yet")
             return
         }
         // setMockWifiNetworks(List<MockWifiNetwork>) — write as a typed list.
@@ -1162,7 +1168,7 @@ class ServiceGoRoot : Service() {
     }
 
     // ------------------------------------------------------------------
-    // Cell-tower spoofing bridge (service_mock_location.setMockCells)
+    // Cell-tower spoofing bridge (oem_location.setMockCells)
     //
     // TelephonyRegistryHook only feeds the spoofed towers when
     // MockLocationHookManager.isMocking() is true, so cell mode arms location
@@ -1200,7 +1206,7 @@ class ServiceGoRoot : Service() {
         }
         val svc = resolveMockLocServiceWithRetry()
         if (svc == null) {
-            KailLog.w(this, TAG, "service_mock_location binder not online yet (cell)")
+            KailLog.w(this, TAG, "oem_location binder not online yet (cell)")
             return
         }
         val towers = ArrayList<com.kail.location.inject.fakelocation.model.CellTowerInfo>()
@@ -1352,17 +1358,18 @@ class ServiceGoRoot : Service() {
                             mCurBea = mRouteEngine.currentBea
                             updateJoystickStatus()
                         }
-                        pushLocationToInjection()
                     }
-                    if (!isStop) {
-                        sendEmptyMessageDelayed(HANDLER_MSG_ID, currentLocationUpdateIntervalMs())
-                    }
+                    // Always push the current position even when paused, so the
+                    // mock location stays at the last simulated spot instead of
+                    // snapping back to the real GPS position.
+                    pushLocationToInjection()
+                    sendEmptyMessageDelayed(HANDLER_MSG_ID, currentLocationUpdateIntervalMs())
                 } catch (e: InterruptedException) {
                     KailLog.e(this@ServiceGoRoot, TAG, "loop interrupted: ${e.message}")
                     Thread.currentThread().interrupt()
                 } catch (e: Exception) {
                     KailLog.e(this@ServiceGoRoot, TAG, "loop: ${e.message}")
-                    if (!isStop) sendEmptyMessageDelayed(HANDLER_MSG_ID, currentLocationUpdateIntervalMs())
+                    sendEmptyMessageDelayed(HANDLER_MSG_ID, currentLocationUpdateIntervalMs())
                 }
             }
         }

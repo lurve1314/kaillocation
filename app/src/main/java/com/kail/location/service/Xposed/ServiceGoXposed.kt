@@ -691,22 +691,19 @@ class ServiceGoXposed : Service() {
                             mCurBea = mRouteEngine.currentBea
                             updateJoystickStatus()
                         }
-
-                        val locExtras = Bundle().apply {
-                            putDouble("lat", mCurLat)
-                            putDouble("lon", mCurLng)
-                        }
-                        sendXposedCommand("update_location", locExtras)
                     }
-                    if (!isStop) {
-                        sendEmptyMessageDelayed(HANDLER_MSG_ID, currentLocationUpdateIntervalMs())
+                    val locExtras = Bundle().apply {
+                        putDouble("lat", mCurLat)
+                        putDouble("lon", mCurLng)
                     }
+                    sendXposedCommand("update_location", locExtras)
+                    sendEmptyMessageDelayed(HANDLER_MSG_ID, currentLocationUpdateIntervalMs())
                 } catch (e: InterruptedException) {
                     KailLog.e(this@ServiceGoXposed, "ServiceGoXposed", "handleMessage interrupted: ${e.message}")
                     Thread.currentThread().interrupt()
                 } catch (e: Exception) {
                     KailLog.e(this@ServiceGoXposed, "ServiceGoXposed", "handleMessage exception: ${e.message}")
-                    if (!isStop) sendEmptyMessageDelayed(HANDLER_MSG_ID, currentLocationUpdateIntervalMs())
+                    sendEmptyMessageDelayed(HANDLER_MSG_ID, currentLocationUpdateIntervalMs())
                 }
             }
         }

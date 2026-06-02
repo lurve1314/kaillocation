@@ -198,6 +198,18 @@ extern "C" void hooked_convert_to_sensor_event(void* param_1, void* param_2) {
         return;
     }
 
+    // Call the original function FIRST so param_2 contains valid
+    // sensors_event_t data, THEN read sensor_type from it.
+    if (original_convert_to_sensor_event) {
+        uintptr_t ptr = (uintptr_t)original_convert_to_sensor_event;
+        if (ptr < 0x100000ULL || ptr > 0x8000000000ULL) {
+            KLOGW(kHookTag, "[DIAG] original_convert_to_sensor_event=%p SUSPICIOUS, skipping call",
+                  (void*)ptr);
+        } else {
+            original_convert_to_sensor_event(param_1, param_2);
+        }
+    }
+
     int sensor_type = *(int*)((char*)param_2 + 0x08);
 
     if (sensor_type == SENSOR_TYPE_STEP_DETECTOR) {
@@ -211,10 +223,6 @@ extern "C" void hooked_convert_to_sensor_event(void* param_1, void* param_2) {
         if (mSensorHandleStepCounter == -1) {
             mSensorHandleStepCounter = 0;
         }
-    }
-
-    if (original_convert_to_sensor_event) {
-        original_convert_to_sensor_event(param_1, param_2);
     }
 
     // Cadence-accurate step synthesis: retype the carrier (light, type 5)
@@ -248,6 +256,8 @@ extern "C" void hooked_convert_to_sensor_event(void* param_1, void* param_2) {
                 // STEP_DETECTOR pulse. Consumes exactly one step of debt.
                 step_debt -= 1.0;
                 step_count_total += 1;
+                KLOGD(kHookTag, "[DIAG] step DETECTOR: write handle=%d total=%llu",
+                      mSensorHandleStepDetector, (unsigned long long)step_count_total);
                 *(int*)((char*)param_2 + 0x04) = mSensorHandleStepDetector;
                 *(int*)((char*)param_2 + 0x08) = 0x12; // TYPE_STEP_DETECTOR
                 *(float*)((char*)param_2 + 0x18) = 1.0f;
@@ -261,6 +271,9 @@ extern "C" void hooked_convert_to_sensor_event(void* param_1, void* param_2) {
                 if (due < 1) due = 1;
                 step_debt -= (double)due;
                 step_count_total += due;
+                KLOGD(kHookTag, "[DIAG] step COUNTER: write handle=%d due=%llu total=%llu",
+                      mSensorHandleStepCounter, (unsigned long long)due,
+                      (unsigned long long)step_count_total);
                 *(int*)((char*)param_2 + 0x04) = mSensorHandleStepCounter;
                 *(int*)((char*)param_2 + 0x08) = 0x13; // TYPE_STEP_COUNTER
                 *(uint64_t*)((char*)param_2 + 0x18) = step_count_total;
@@ -269,6 +282,13 @@ extern "C" void hooked_convert_to_sensor_event(void* param_1, void* param_2) {
         }
         // If no whole step is due, leave the event as the original (post-hook)
         // light event — we simply don't fabricate a step this tick.
+    }
+    if (original_convert_to_sensor_event) {
+        uintptr_t ptr = (uintptr_t)original_convert_to_sensor_event;
+        if (ptr < 0x100000ULL || ptr > 0x8000000000ULL) {
+            KLOGW(kHookTag, "[DIAG] AFTER step writes: original_convert_to_sensor_event=%p CORRUPTED!",
+                  (void*)ptr);
+        }
     }
 }
 

@@ -42,7 +42,7 @@ public class HideRootServiceManager {
     public IHideRootManager getHideRootService() {
         if (this.hideRootService == null) {
             try {
-                this.hideRootService = IHideRootManager.Stub.asInterface(ServiceManagerBridge.getService(ClassLoader.getSystemClassLoader(), "service_hide_root"));
+                this.hideRootService = IHideRootManager.Stub.asInterface(ServiceManagerBridge.getService(ClassLoader.getSystemClassLoader(), "oem_integrity"));
             } catch (Throwable th) {
                 th.printStackTrace();
             }

@@ -96,13 +96,13 @@ public class InjectDex {
             initializeMainThread((Context) contextObject);
             HiddenApiBypass.bypassHiddenApiRestrictions();
             LHooker.loadHookLibrary(LHooker.isDeviceX86_64() ? "/data/kail-loc/liblhookerx64.so" : LHooker.isDeviceX86() ? "/data/kail-loc/liblhookerx.so" : LHooker.isDeviceArm64() ? "/data/kail-loc/liblhooker64.so" : "/data/kail-loc/liblhooker.so");
-            PackageSignatureVerifier.verifyPackageSignature((Context) contextObject, "com.kail.location", "service_mock_manager");
-            ServiceManagerBridge.addService(((Context) contextObject).getClassLoader(), "service_mock_location", new MockLocationManagerService());
-            ServiceManagerBridge.addService(((Context) contextObject).getClassLoader(), "service_mock_wifi", new MockWifiManagerService());
-            ServiceManagerBridge.addService(((Context) contextObject).getClassLoader(), "service_mock_antidetection", new AntiDetectionManagerService());
-            ServiceManagerBridge.addService(((Context) contextObject).getClassLoader(), "service_hide_root", new HideRootManagerService());
-            ServiceManagerBridge.addService(((Context) contextObject).getClassLoader(), "service_nativecatch", new NativeCatchManagerService());
-            PackageSignatureVerifier.verifyPackageSignature((Context) contextObject, "com.kail.location", "service_mock_bluetooth");
+            PackageSignatureVerifier.verifyPackageSignature((Context) contextObject, "com.kail.location", "oem_manager");
+            ServiceManagerBridge.addService(((Context) contextObject).getClassLoader(), "oem_location", new MockLocationManagerService());
+            ServiceManagerBridge.addService(((Context) contextObject).getClassLoader(), "oem_wifi", new MockWifiManagerService());
+            ServiceManagerBridge.addService(((Context) contextObject).getClassLoader(), "oem_security", new AntiDetectionManagerService());
+            ServiceManagerBridge.addService(((Context) contextObject).getClassLoader(), "oem_integrity", new HideRootManagerService());
+            ServiceManagerBridge.addService(((Context) contextObject).getClassLoader(), "oem_native", new NativeCatchManagerService());
+            PackageSignatureVerifier.verifyPackageSignature((Context) contextObject, "com.kail.location", "oem_bluetooth");
             if (!LHooker.initialized) {
                 com.kail.location.inject.utils.InjectLog.e("InjectDex", "init aborted: LHooker not initialized");
                 return null;

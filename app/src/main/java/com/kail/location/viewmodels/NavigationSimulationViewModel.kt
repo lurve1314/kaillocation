@@ -444,22 +444,48 @@ class NavigationSimulationViewModel(application: Application) : AndroidViewModel
 
     private fun startLocationMonitor() {
         stopLocationMonitor()
-        val app = getApplication<Application>()
-        val lm = app.getSystemService(android.content.Context.LOCATION_SERVICE) as android.location.LocationManager
+        val points = _candidateRoutes.value.getOrNull(0) ?: return
+        if (points.size < 2) return
+        val speedMs = _speed.value / 3.6
+        if (speedMs <= 0) return
+
+        fun segLen(a: LatLng, b: LatLng): Double {
+            val midLat = (a.latitude + b.latitude) / 2.0
+            val dLat = b.latitude - a.latitude
+            val dLng = b.longitude - a.longitude
+            val mPerDegLat = com.kail.location.geo.GeoMath.metersPerDegLat(midLat)
+            val mPerDegLng = com.kail.location.geo.GeoMath.metersPerDegLng(midLat)
+            return kotlin.math.sqrt(dLat * mPerDegLat * dLat * mPerDegLat + dLng * mPerDegLng * dLng * mPerDegLng)
+        }
+        var totalDist = 0.0
+        for (i in 0 until points.size - 1) {
+            totalDist += segLen(points[i], points[i + 1])
+        }
+        if (totalDist <= 0) return
+        val totalTimeMs = (totalDist / speedMs * 1000).toLong().coerceAtLeast(1)
+        val startTime = android.os.SystemClock.elapsedRealtime()
+
         monitorJob = viewModelScope.launch {
             while (_isSimulating.value) {
-                try {
-                    if (ContextCompat.checkSelfPermission(app, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED ||
-                        ContextCompat.checkSelfPermission(app, android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                    ) {
-                        val gps = lm.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
-                        val net = lm.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
-                        val loc = gps ?: net
-                        if (loc != null) {
-                            _currentLatLng.value = LatLng(loc.latitude, loc.longitude)
-                        }
+                val elapsed = android.os.SystemClock.elapsedRealtime() - startTime
+                val ratio = (elapsed.toFloat() / totalTimeMs).coerceIn(0f, 1f)
+                var targetDist = totalDist * ratio
+                var accumulated = 0.0
+                var pos = points[0]
+                for (i in 0 until points.size - 1) {
+                    val segDist = segLen(points[i], points[i + 1])
+                    if (accumulated + segDist >= targetDist) {
+                        val f = ((targetDist - accumulated) / segDist).coerceIn(0.0, 1.0)
+                        pos = LatLng(
+                            points[i].latitude + (points[i + 1].latitude - points[i].latitude) * f,
+                            points[i].longitude + (points[i + 1].longitude - points[i].longitude) * f
+                        )
+                        break
                     }
-                } catch (_: Exception) {}
+                    accumulated += segDist
+                    pos = points[i + 1]
+                }
+                _currentLatLng.value = pos
                 delay(1000)
             }
         }

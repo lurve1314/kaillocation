@@ -20,8 +20,8 @@ import com.kail.location.utils.KailLog
  * 里的应用生效**，其它应用一律读到真实数据。
  *
  * 底层实现：白名单通过 [com.kail.location.service.Root.ServiceGoRoot] 下发到
- * FakeLocation 注入层的 `setAllowMockPackages`（service_mock_location /
- * service_mock_wifi）。白名单为空时 FakeLocation 默认对所有应用生效（isAllMock）。
+ * FakeLocation 注入层的 `setAllowMockPackages`（oem_location /
+ * oem_wifi）。白名单为空时 FakeLocation 默认对所有应用生效（isAllMock）。
  */
 class IndependentSimulationViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(application)

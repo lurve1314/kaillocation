@@ -339,6 +339,7 @@ class RouteSimulationViewModel(application: Application) : AndroidViewModel(appl
             intent.putExtra(extraJoystickEnabled, false)
             intent.putExtra(extraRouteSpeed, settings.value.speed)
             intent.putExtra(extraCoordType, "BD09")
+            intent.putExtra(com.kail.location.views.locationpicker.LocationPickerActivity.ALT_MSG_ID, sharedPreferences.getString("setting_altitude", "55.0")?.toDoubleOrNull() ?: 55.0)
             intent.putExtra(extraSpeedFluctuation, settings.value.speedFluctuation)
             if (currentRunMode == "root" || currentRunMode == "xposed") {
                 intent.putExtra(ServiceGoRoot.EXTRA_STEP_ENABLED, settings.value.stepFreqSimulation)

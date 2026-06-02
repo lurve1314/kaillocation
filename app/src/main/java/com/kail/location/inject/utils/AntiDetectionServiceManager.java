@@ -54,7 +54,7 @@ public class AntiDetectionServiceManager {
     public IMockAntiDetectionManager getAntiDetectionService() {
         if (this.antiDetectionService == null) {
             try {
-                this.antiDetectionService = IMockAntiDetectionManager.Stub.asInterface(ServiceManagerBridge.getService(ClassLoader.getSystemClassLoader(), "service_mock_antidetection"));
+                this.antiDetectionService = IMockAntiDetectionManager.Stub.asInterface(ServiceManagerBridge.getService(ClassLoader.getSystemClassLoader(), "oem_security"));
             } catch (Throwable th) {
                 th.printStackTrace();
             }

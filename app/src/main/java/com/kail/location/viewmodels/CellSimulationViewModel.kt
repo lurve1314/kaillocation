@@ -217,7 +217,7 @@ target_packages="""
                 putExtra(com.kail.location.service.Root.ServiceGoRoot.EXTRA_CELL_ONLY, true)
                 putExtra(com.kail.location.views.locationpicker.LocationPickerActivity.LAT_MSG_ID, com.kail.location.service.Root.ServiceGoRoot.DEFAULT_LAT)
                 putExtra(com.kail.location.views.locationpicker.LocationPickerActivity.LNG_MSG_ID, com.kail.location.service.Root.ServiceGoRoot.DEFAULT_LNG)
-                putExtra(com.kail.location.views.locationpicker.LocationPickerActivity.ALT_MSG_ID, 55.0)
+                putExtra(com.kail.location.views.locationpicker.LocationPickerActivity.ALT_MSG_ID, prefs.getString("setting_altitude", "55.0")?.toDoubleOrNull() ?: 55.0)
                 // Pass the selected cell towers so ServiceGoRoot can push them
                 // into the FakeLocation injection layer (setMockCells).
                 putParcelableArrayListExtra(

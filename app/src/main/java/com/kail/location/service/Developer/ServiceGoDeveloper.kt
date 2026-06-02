@@ -359,18 +359,14 @@ class ServiceGoDeveloper : Service() {
                             updateJoystickStatus()
                         }
                     }
-                    if (!isStop) {
-                        mMockLocationProvider.setLocation(mCurLat, mCurLng, mCurAlt, mCurBea, mSpeed, isStop)
-                    }
-                    if (!isStop) {
-                        mLocHandler.sendEmptyMessageDelayed(HANDLER_MSG_ID, currentLocationUpdateIntervalMs())
-                    }
+                    mMockLocationProvider.setLocation(mCurLat, mCurLng, mCurAlt, mCurBea, mSpeed, isStop)
+                    mLocHandler.sendEmptyMessageDelayed(HANDLER_MSG_ID, currentLocationUpdateIntervalMs())
                 } catch (e: InterruptedException) {
                     KailLog.e(this@ServiceGoDeveloper, "ServiceGoDeveloper", "handleMessage interrupted: ${e.message}")
                     Thread.currentThread().interrupt()
                 } catch (e: Exception) {
                     KailLog.e(this@ServiceGoDeveloper, "ServiceGoDeveloper", "handleMessage exception: ${e.message}")
-                    if (!isStop) sendEmptyMessageDelayed(HANDLER_MSG_ID, currentLocationUpdateIntervalMs())
+                    sendEmptyMessageDelayed(HANDLER_MSG_ID, currentLocationUpdateIntervalMs())
                 }
             }
         }

@@ -137,7 +137,7 @@ class SimulationDiagnostics private constructor(
             r.contains("缺失") || r.contains("部署") ->
                 "SO/dex 部署失败，检查存储空间与 /data/kail-loc 权限，或重装应用。"
             r.contains("binder") || r.contains("注入未生效") ->
-                "注入未注册 service_mock_location；确认 ROOT 已授权、ArtMethod 布局已识别（见上方 native 探测），必要时重启设备。"
+                "注入未注册 oem_location；确认 ROOT 已授权、ArtMethod 布局已识别（见上方 native 探测），必要时重启设备。"
             r.contains("ART") || r.contains("布局") ->
                 "ART ArtMethod 布局未识别（系统版本过新？），把本段日志发给开发者。"
             r.contains("权限") || r.contains("ACCESS_FINE_LOCATION") ->
