@@ -38,12 +38,14 @@ import com.kail.location.views.common.AppDrawer
 import com.baidu.mapapi.map.BaiduMap
 
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.CircularProgressIndicator
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LocationPickerScreen(
     mapView: MapView?,
     isMocking: Boolean,
+    isStarting: Boolean = false,
     targetLocation: com.baidu.mapapi.model.LatLng,
     mapType: Int,
     currentCity: String?,
@@ -191,6 +193,7 @@ fun LocationPickerScreen(
                 Column(horizontalAlignment = Alignment.End) {
                     FloatingActionButton(
                         onClick = {
+                            if (isStarting) return@FloatingActionButton
                             if (isPickMode) {
                                 onConfirmSelection()
                             } else {
@@ -199,7 +202,13 @@ fun LocationPickerScreen(
                         },
                         containerColor = MaterialTheme.colorScheme.secondary
                     ) {
-                        if (isPickMode) {
+                        if (isStarting) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp,
+                                color = Color.White
+                            )
+                        } else if (isPickMode) {
                             Icon(Icons.Default.Check, contentDescription = "Confirm", tint = Color.White)
                         } else {
                             if (isMocking) {

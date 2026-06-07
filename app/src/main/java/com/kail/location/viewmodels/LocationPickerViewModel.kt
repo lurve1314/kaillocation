@@ -1,6 +1,11 @@
 package com.kail.location.viewmodels
 
 import android.app.Application
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.preference.PreferenceManager
@@ -8,6 +13,9 @@ import com.baidu.mapapi.model.LatLng
 import com.kail.location.R
 import com.kail.location.repositories.RootMockRepository
 import com.kail.location.utils.KailLog
+import com.kail.location.utils.service.ServiceConstants
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,6 +39,24 @@ class LocationPickerViewModel(application: Application) : AndroidViewModel(appli
      * 是否正在进行模拟的状态流。
      */
     val isMocking: StateFlow<Boolean> = _isMocking.asStateFlow()
+
+    private val _isStarting = MutableStateFlow(false)
+    val isStarting: StateFlow<Boolean> = _isStarting.asStateFlow()
+
+    private var startTimeoutJob: Job? = null
+
+    private val statusReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != ServiceConstants.ACTION_STATUS_CHANGED) return
+            val isSimulating = intent.getBooleanExtra(ServiceConstants.EXTRA_IS_SIMULATING, false)
+            if (_isStarting.value && !isSimulating) return
+            if (isSimulating) {
+                startTimeoutJob?.cancel()
+                _isStarting.value = false
+            }
+            _isMocking.value = isSimulating
+        }
+    }
 
     private val _targetLocation = MutableStateFlow(LatLng(36.547743718042415, 117.07018449827267))
     /**
@@ -117,6 +143,12 @@ class LocationPickerViewModel(application: Application) : AndroidViewModel(appli
 
     init {
         _runMode.value = sharedPreferences.getString(KEY_RUN_MODE, RUN_MODE_DEVELOPER) ?: RUN_MODE_DEVELOPER
+        ContextCompat.registerReceiver(
+            application,
+            statusReceiver,
+            IntentFilter(ServiceConstants.ACTION_STATUS_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
         suggestionSearch.setOnGetSuggestionResultListener { suggestionResult ->
             if (suggestionResult == null || suggestionResult.allSuggestions == null) {
                 _searchResults.value = emptyList()
@@ -138,6 +170,10 @@ class LocationPickerViewModel(application: Application) : AndroidViewModel(appli
     override fun onCleared() {
         super.onCleared()
         suggestionSearch.destroy()
+        startTimeoutJob?.cancel()
+        try {
+            getApplication<Application>().unregisterReceiver(statusReceiver)
+        } catch (_: Exception) {}
     }
 
     /**
@@ -177,6 +213,25 @@ class LocationPickerViewModel(application: Application) : AndroidViewModel(appli
      */
     fun setMockingState(isMocking: Boolean) {
         _isMocking.value = isMocking
+    }
+
+    fun setStarting(starting: Boolean) {
+        _isStarting.value = starting
+        if (starting) {
+            scheduleStartTimeout()
+        } else {
+            startTimeoutJob?.cancel()
+        }
+    }
+
+    private fun scheduleStartTimeout() {
+        startTimeoutJob?.cancel()
+        startTimeoutJob = viewModelScope.launch {
+            delay(30_000)
+            if (_isStarting.value) {
+                _isStarting.value = false
+            }
+        }
     }
 
     /**

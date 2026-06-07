@@ -93,7 +93,6 @@ class LocationPickerActivity : BaseActivity(), SensorEventListener {
     private var mCurrentLon = 0.0       // 当前位置的百度经度
     private var mCurrentDirection = 0.0f
     private var isFirstLoc = true // 是否首次定位
-    private var isMockServStart = false
     private var mServiceBinder: IBinder? = null
     private var mConnection: ServiceConnection? = null
 
@@ -221,6 +220,7 @@ class LocationPickerActivity : BaseActivity(), SensorEventListener {
 
         setContent {
             val isMocking by viewModel.isMocking.collectAsState()
+            val isStarting by viewModel.isStarting.collectAsState()
             val selectedPoi by viewModel.selectedPoi.collectAsState()
             val searchResults by viewModel.searchResults.collectAsState()
             val runMode by viewModel.runMode.collectAsState()
@@ -234,6 +234,7 @@ class LocationPickerActivity : BaseActivity(), SensorEventListener {
                 LocationPickerScreen(
                     mapView = mMapView,
                     isMocking = isMocking,
+                    isStarting = isStarting,
                     targetLocation = targetLocation,
                     mapType = mapType,
                     currentCity = currentCity,
@@ -265,6 +266,7 @@ class LocationPickerActivity : BaseActivity(), SensorEventListener {
                          finish()
                     },
                     onToggleMock = {
+                        viewModel.setStarting(true)
                         doGoLocation()
                     },
                     onZoomIn = { mBaiduMap?.setMapStatus(MapStatusUpdateFactory.zoomIn()) },
@@ -402,7 +404,7 @@ class LocationPickerActivity : BaseActivity(), SensorEventListener {
         mMapView = null
         mBaiduMap = null
         try {
-            if (isMockServStart && mConnection != null) {
+            if (viewModel.isMocking.value && mConnection != null) {
                 unbindService(mConnection!!)
             }
         } catch (e: Exception) {
@@ -687,7 +689,8 @@ class LocationPickerActivity : BaseActivity(), SensorEventListener {
             else -> ServiceGoDeveloper::class.java
         }
 
-        if (isMockServStart) {
+        val isCurrentlyMocking = viewModel.isMocking.value
+        if (isCurrentlyMocking) {
             KailLog.i(this, "LocationPickerActivity", "Stopping Mock Service...")
             val intent = Intent(this, serviceClass)
             try {
@@ -698,7 +701,7 @@ class LocationPickerActivity : BaseActivity(), SensorEventListener {
                 KailLog.e(this, "LocationPickerActivity", "Error unbinding service: ${e.message}")
             }
             stopService(intent)
-            isMockServStart = false
+            viewModel.setStarting(false)
         } else {
             KailLog.i(this, "LocationPickerActivity", "Starting Mock Service...")
             val intent = Intent(this, serviceClass)
@@ -731,9 +734,7 @@ class LocationPickerActivity : BaseActivity(), SensorEventListener {
                 startService(intent)
             }
             bindService(intent, mConnection!!, Context.BIND_AUTO_CREATE)
-            isMockServStart = true
         }
-        viewModel.setMockingState(isMockServStart)
     }
 
     /*============================== SQLite 相关 ==============================*/
