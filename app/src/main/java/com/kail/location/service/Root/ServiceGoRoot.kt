@@ -1194,8 +1194,12 @@ class ServiceGoRoot : Service() {
         if (!controlOk) runCatching {
             if (isCurrentGeneration(generation) && !modeWifiOnly && !modeCellOnly) {
                 broadcastStatusStopped()
+                android.os.Handler(mainLooper).post {
+                    GoUtils.DisplayToast(applicationContext,
+                        getString(R.string.service_root_fallback_noroot))
+                    stopSelf()
+                }
             }
-            android.os.Handler(mainLooper).post { GoUtils.DisplayToast(applicationContext, getString(R.string.service_root_fallback_noroot)) }
         }
         return startupOk
     }

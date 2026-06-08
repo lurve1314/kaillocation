@@ -637,8 +637,8 @@
     <string name="setting_opencellid_key">OpenCellID API Key</string>
     <string name="setting_opencellid_key_summary">用於透過經緯度查詢周邊基站，需先在 opencellid.org 註冊獲取</string>
     <string name="vm_system_not_ready">系統未就緒，請開機 %1$d 秒後再試（剩餘約 %2$d 秒）</string>
-    <string name="service_root_fallback_noroot">未獲得 ROOT 授權，已回退到測試 Provider（易被檢測）。請在 ROOT 管理器裡授權 KailLocation。</string>
-    <string name="service_root_fallback_binder">注入未生效，已回退到測試 Provider。請稍候重試，或重新啟動裝置後再開始模擬。</string>
+    <string name="service_root_fallback_noroot">ROOT 注入失敗，請確認已在 ROOT 管理器裡授權 KailLocation 後再試</string>
+    <string name="service_root_fallback_binder">注入未生效，請稍候重試，或重新啟動裝置後再開始模擬</string>
     <string name="cell_type_gsm">GSM</string>
     <string name="cell_type_cdma">CDMA</string>
     <string name="cell_type_lte">LTE</string>

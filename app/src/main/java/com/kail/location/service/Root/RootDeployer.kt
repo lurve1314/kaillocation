@@ -102,7 +102,7 @@ object RootDeployer {
             "ROOT 权限",
             rooted,
             if (rooted) "su 可用"
-            else "su 调用失败——应用未获 ROOT 授权（请在 KernelSU/Magisk 管理器里授权），将回退到测试Provider"
+            else "su 调用失败——应用未获 ROOT 授权（请在 KernelSU/Magisk 管理器里授权）"
         )
         if (!rooted) {
             KailLog.w(null, TAG, "ensureBaseline: no root; skipping")

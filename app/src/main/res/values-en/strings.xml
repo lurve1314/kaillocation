@@ -734,8 +734,8 @@
     <string name="setting_opencellid_key">OpenCellID API Key</string>
     <string name="setting_opencellid_key_summary">Used to query nearby cell towers by coordinates. Register at opencellid.org first.</string>
     <string name="vm_system_not_ready">System not ready. Please try again in %1$d seconds (about %2$d seconds remaining).</string>
-    <string name="service_root_fallback_noroot">ROOT not granted, falling back to test provider (easily detected). Grant KailLocation root access in your root manager.</string>
-    <string name="service_root_fallback_binder">Injection failed, falling back to test provider. Please retry later or restart your device.</string>
+    <string name="service_root_fallback_noroot">ROOT injection failed. Make sure KailLocation is granted root access in your root manager and try again.</string>
+    <string name="service_root_fallback_binder">Injection failed. Please retry later or restart your device.</string>
     <string name="cell_type_gsm">GSM</string>
     <string name="cell_type_cdma">CDMA</string>
     <string name="cell_type_lte">LTE</string>

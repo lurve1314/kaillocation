@@ -120,8 +120,9 @@ class LocationSimulationViewModel(application: Application) : AndroidViewModel(a
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != ServiceConstants.ACTION_STATUS_CHANGED) return
             val isSimulating = intent.getBooleanExtra(ServiceConstants.EXTRA_IS_SIMULATING, false)
-            if (_isStarting.value && !isSimulating) {
-                return
+            if (!isSimulating && _isStarting.value) {
+                startTimeoutJob?.cancel()
+                _isStarting.value = false
             }
             if (isSimulating) {
                 startTimeoutJob?.cancel()

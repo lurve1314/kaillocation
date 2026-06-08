@@ -637,8 +637,8 @@
     <string name="setting_opencellid_key">OpenCellID API Key</string>
     <string name="setting_opencellid_key_summary">经纬度から周辺基地局を検索するために使用。opencellid.org で登録が必要</string>
     <string name="vm_system_not_ready">システムの準備ができていません。%1$d 秒後にお試しください（残り約 %2$d 秒）</string>
-    <string name="service_root_fallback_noroot">ROOT 権限が付与されていません。テストプロバイダにフォールバックしました（検出されやすい）。Root マネージャーで KailLocation を承認してください。</string>
-    <string name="service_root_fallback_binder">注入が適用されませんでした。テストプロバイダにフォールバックしました。後で再試行するか、デバイスを再起動してください。</string>
+    <string name="service_root_fallback_noroot">ROOT 注入に失敗しました。Root マネージャーで KailLocation を承認してから再試行してください</string>
+    <string name="service_root_fallback_binder">注入が適用されませんでした。後で再試行するか、デバイスを再起動してください</string>
     <string name="cell_type_gsm">GSM</string>
     <string name="cell_type_cdma">CDMA</string>
     <string name="cell_type_lte">LTE</string>
