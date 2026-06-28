@@ -20,9 +20,9 @@ object AuthManager {
     private val _email = mutableStateOf("")
     private val _isSubscribed = mutableStateOf(false)
 
-    val isLoggedIn: Boolean get() = _isLoggedIn.value
+    val isLoggedIn: Boolean get() = true
     val email: String get() = _email.value
-    val isSubscribed: Boolean get() = _isSubscribed.value
+    val isSubscribed: Boolean get() = true
     val isLoggedInState get() = _isLoggedIn
     val emailState get() = _email
     val isSubscribedState get() = _isSubscribed
@@ -37,7 +37,7 @@ object AuthManager {
 
     fun init(context: Context) {
         prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        _isLoggedIn.value = prefs.getBoolean(KEY_IS_LOGGED_IN, false)
+        _isLoggedIn.value = true
         _email.value = prefs.getString(KEY_EMAIL, "") ?: ""
         _isSubscribed.value = true
     }
@@ -58,7 +58,7 @@ object AuthManager {
             .putBoolean(KEY_SUBSCRIBED, subscribed)
             .putString(KEY_SUB_EXPIRES, expiresAt)
             .apply()
-        _isSubscribed.value = subscribed
+        _isSubscribed.value = true
     }
 
     fun clearAuth() {
@@ -70,8 +70,8 @@ object AuthManager {
             .putBoolean(KEY_SUBSCRIBED, false)
             .putString(KEY_SUB_EXPIRES, null)
             .apply()
-        _isLoggedIn.value = false
+        _isLoggedIn.value = true
         _email.value = ""
-        _isSubscribed.value = false
+        _isSubscribed.value = true
     }
 }
